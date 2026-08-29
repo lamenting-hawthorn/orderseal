@@ -1,0 +1,20 @@
+{
+  "endpoint": "/chat/completions",
+  "latency_ms": 2143,
+  "model_requested": "openai/gpt-5.6-luna",
+  "model_returned": "openai/gpt-5.6-luna",
+  "ok": true,
+  "provider_base_url": "https://openrouter.ai/api/v1",
+  "response_sha256": "6356b878af7ba8289b6a23417ce08f5add766d38ab534091302325f47e7367a3",
+  "schema_version": 1,
+  "timestamp_utc": "2026-08-29T22:32:55.187602+00:00",
+  "tool_arguments": {
+    "message": "gate-zero-ok"
+  },
+  "tool_name": "record_probe",
+  "usage": {
+    "completion_tokens": 20,
+    "prompt_tokens": 151,
+    "total_tokens": 171
+  }
+}

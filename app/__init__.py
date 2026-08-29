@@ -1,0 +1,1 @@
+"""OrderSeal application package."""
