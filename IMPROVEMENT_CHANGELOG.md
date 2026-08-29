@@ -41,3 +41,27 @@ or removed experiments remain visible.
   Proceed to Phase 2 while keeping production readiness on HOLD.
 - **Lesson:** the acknowledgement fault belongs after the commit and must never
   return an order identifier before reconciliation.
+
+## 2026-08-30 — Protected model investigation boundary
+
+- **Hypothesis:** a static seven-tool registry can let the selected model
+  investigate and prepare an exact synthetic order without granting it any
+  confirmation capability or authority over stored constraints.
+- **Intervention:** added strict duplicate-key-aware argument parsing, bounded
+  model/tool/result loops, typed untrusted catalogue evidence, server-owned cart
+  validation, redacted trajectory events, and a reversible preparation handoff.
+- **Observed:** 41 local tests pass. An authorized OpenRouter run using
+  `openai/gpt-5.6-luna` called `search_catalog`, `inspect_product`, `set_cart`,
+  `validate_cart`, and `prepare_order`, then reached `ready_for_confirmation`
+  in 3,060 tokens. The model received no cookie, CSRF token, intent nonce,
+  operation key, confirmation route credential, raw provider payload, or raw
+  trajectory prompt.
+- **Evidence:** `PHASE2_LIVE_RECEIPT.json`, `tests/test_agent.py`, and the local
+  SQLite oracle. This is one live provider run plus local proof, not scored
+  evaluation, staging, or production evidence.
+- **Decision:** repaired the first independent HOLD, passed a fresh final veto,
+  fixed its sole medium usage-integrity finding, and passed the focused exact-tree
+  recheck. Retain the controller and proceed to Phase 3; production readiness
+  remains HOLD.
+- **Lesson:** preparation can be model-requested while confirmation authority
+  remains server-held and browser-scoped.

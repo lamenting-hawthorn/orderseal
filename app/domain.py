@@ -11,6 +11,14 @@ from typing import Any
 PRICING_POLICY_VERSION = "synthetic-inr-v1"
 PREPARATION_TTL_SECONDS = 600
 SESSION_TTL_SECONDS = 3_600
+DEMO_SKU = "KB-ERG-001"
+DEMO_QUANTITY = 2
+DEMO_CONSTRAINTS = {
+    "budget_paise": 1_800_000,
+    "currency": "INR",
+    "delivery_days_max": 5,
+    "items": [{"quantity": DEMO_QUANTITY, "sku": DEMO_SKU}],
+}
 
 
 class DomainError(Exception):
@@ -125,12 +133,7 @@ def prepare_demo(
     operation_key = random_id("op")
     expires_at_epoch = now_epoch + PREPARATION_TTL_SECONDS
 
-    constraints = {
-        "budget_paise": 1_800_000,
-        "currency": "INR",
-        "delivery_days_max": 5,
-        "items": [{"quantity": 2, "sku": "KB-ERG-001"}],
-    }
+    constraints = json.loads(canonical_json(DEMO_CONSTRAINTS))
     constraint_json = canonical_json(constraints)
     constraint_digest = digest("orderseal-constraints-v1", constraints)
     product = connection.execute(
@@ -139,12 +142,12 @@ def prepare_demo(
                delivery_days, version, active
         FROM products WHERE sku = ?
         """,
-        ("KB-ERG-001",),
+        (DEMO_SKU,),
     ).fetchone()
     if product is None or not product["active"]:
         raise DomainError("product_unavailable")
 
-    quantity = 2
+    quantity = DEMO_QUANTITY
     if product["stock_quantity"] < quantity:
         raise DomainError("insufficient_stock")
     if product["delivery_days"] is None:

@@ -1,0 +1,28 @@
+{
+  "candidate_sha256": {
+    "app/agent.py": "50a0664a50b14b8ead9febea8402ef355a4c35363ebd78e105d72b6048be815b",
+    "app/domain.py": "bbb74997553bdc6d393de90a4014f5ed9faa2854037e72a6ffe0aeaa78dedb16",
+    "live_agent_probe.py": "f4ff73b2c9053bcaa19198f892c33806c32712ce77e8726c1307842fb379b605"
+  },
+  "model": "openai/gpt-5.6-luna",
+  "ok": true,
+  "prepared": true,
+  "provider_base_url": "https://openrouter.ai/api/v1",
+  "reason": "prepared",
+  "schema_version": 1,
+  "source_revision": "06f8d58a1899b4c62ec6292fd7f3501f7d8ce4ff",
+  "status": "ready_for_confirmation",
+  "timestamp_utc": "2026-08-29T23:41:41.738059+00:00",
+  "tools": [
+    "search_catalog",
+    "inspect_product",
+    "set_cart",
+    "validate_cart",
+    "prepare_order"
+  ],
+  "usage": {
+    "completion_tokens": 119,
+    "prompt_tokens": 2941,
+    "total_tokens": 3060
+  }
+}
