@@ -1,28 +1,38 @@
 # OrderSeal
 
 OrderSeal is a synthetic procurement agent that separates model investigation
-from the final consequential action. SQLite is authoritative, a human-only
-route confirms an exact prepared cart, and uncertain acknowledgements reconcile
-durable state instead of retrying blindly.
+from the final consequential action. SQLite is authoritative, a browser-only
+capability route confirms an exact prepared cart, and uncertain acknowledgements
+reconcile durable state instead of retrying blindly.
 
 All catalogue data, users, money, addresses, and order effects are synthetic.
 This repository does not connect to payments or real commerce systems.
 
 ## Current status
 
-Phase 0 skeleton. Gate Zero passed through OpenRouter with
-`openai/gpt-5.6-luna`; see `GATE_ZERO_RECEIPT.json`. The deterministic commerce
-kernel is the next implementation gate.
+Phase 1 bounded-effect slice accepted by an independent local veto review.
+Gate Zero passed through OpenRouter with
+`openai/gpt-5.6-luna`; see `GATE_ZERO_RECEIPT.json`. The local public-route
+suite proves a functional server-rendered confirmation, provenance that labels
+the browser operator as unverified rather than asserting human identity, one
+atomic stock/order effect,
+post-commit acknowledgement-loss recording, reconciliation, replay safety,
+stale-quote rejection, exact-boundary expiry, delayed-lock expiry, and
+cross-session isolation.
 
 ## Setup
 
 ```bash
 uv sync
 uv run pytest -q
+uv run python -m app.db reset --path orderseal.db --seed orderseal-v1
 uv run uvicorn app.main:app
 ```
 
-The health endpoint is `GET /health`.
+Open `http://127.0.0.1:8000`. The local HTTP configuration intentionally omits
+the cookie `Secure` attribute so the documented local path works. Set
+`ORDERSEAL_ORIGIN` to the exact HTTPS origin in an HTTPS environment; this also
+enables secure cookies. The health endpoint is `GET /health`.
 
 Live model calls require a git-ignored `.env` containing
 `ORDERSEAL_BASE_URL`, `ORDERSEAL_MODEL`, and `ORDERSEAL_API_KEY`. Never commit

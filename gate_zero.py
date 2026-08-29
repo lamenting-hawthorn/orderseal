@@ -4,14 +4,12 @@ import hashlib
 import json
 import os
 import ssl
-import sys
 import time
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
-
 
 ROOT = Path(__file__).resolve().parent
 ENV_FILE = ROOT / ".env"
@@ -98,7 +96,9 @@ def main() -> int:
         provider_error: dict[str, object] = {}
         try:
             error_data = json.loads(error.read(65_536))
-            error_object = error_data.get("error") if isinstance(error_data, dict) else None
+            error_object = (
+                error_data.get("error") if isinstance(error_data, dict) else None
+            )
             if isinstance(error_object, dict):
                 for key in ("type", "code"):
                     if isinstance(error_object.get(key), (str, int)):
@@ -124,7 +124,9 @@ def main() -> int:
     response_data = json.loads(raw_response)
     function_call = response_data["choices"][0]["message"]["tool_calls"][0]["function"]
     arguments = json.loads(function_call["arguments"])
-    if function_call["name"] != "record_probe" or arguments != {"message": "gate-zero-ok"}:
+    if function_call["name"] != "record_probe" or arguments != {
+        "message": "gate-zero-ok"
+    }:
         print(json.dumps({"ok": False, "error": "invalid_tool_call", "status": status}))
         return 1
 
@@ -148,7 +150,11 @@ def main() -> int:
         "response_sha256": hashlib.sha256(raw_response).hexdigest(),
     }
     RECEIPT_FILE.write_text(json.dumps(receipt, indent=2, sort_keys=True) + os.linesep)
-    print(json.dumps({"ok": True, "model": receipt["model_returned"], "latency_ms": latency_ms}))
+    print(
+        json.dumps(
+            {"ok": True, "model": receipt["model_returned"], "latency_ms": latency_ms}
+        )
+    )
     return 0
 
 

@@ -1,10 +1,10 @@
 # OrderSeal Build Plan
 
-**Status:** Revised after official-PDF analysis, independent Claude Opus 5 review, and four focused Sol/Luna reviews; implementation not started
+**Status:** Phase 1 bounded-effect slice accepted locally; 24 tests pass; two review HOLDs repaired; final exact-tree veto PASS; production readiness remains HOLD
 **Project:** OrderSeal — evidence-first checkout under uncertainty
 **Workspace:** `/Users/raghav/Documents/ChatGPT/Frontier Engineering Challenge 2026`
 **Submission deadline:** 2026-08-31 18:00 UTC / 23:30 IST
-**Ground state:** The workspace is not a Git repository. It contains planning/review documents and rendered-PDF scratch files, but no application implementation.
+**Ground state:** Git repository on `main`; provenance/skeleton commit `688cd3e`; Phase 1 application slice is an independently reviewed working-tree diff accepted for commit.
 **Safety framing:** All products, accounts, money, addresses, and order effects are synthetic. The design deliberately models a consequential action so structural human approval, idempotency, prompt-injection resistance, and ambiguous-outcome reconciliation can be evaluated safely.
 
 ## 1. Objective
@@ -134,7 +134,7 @@ Browser UI
 FastAPI application
    |-- agent controller and tool registry
    |-- deterministic commerce domain
-   |-- human-only confirmation route
+   |-- browser confirmation route unavailable to the agent tool registry
    |-- evaluation-only fault injector
    |-- receipt/trajectory writer
    v
@@ -146,7 +146,7 @@ SQLite authoritative store
 - Python 3.11+
 - FastAPI and Uvicorn
 - SQLite through Python's standard `sqlite3`
-- OpenAI Responses API for the initial model-driven agent
+- OpenRouter's OpenAI-compatible Chat Completions API for the initial model-driven agent
 - Server-rendered HTML plus vanilla JavaScript and CSS
 - Pydantic models at HTTP and tool boundaries
 - Pytest for deterministic and integration checks
@@ -211,7 +211,7 @@ The controller uses an explicit step budget and terminates in `ready_for_confirm
 Only the protected server route may invoke the commit function. The visible browser UI supplies the confirmation capability. The `POST` route requires:
 
 - A high-entropy, expiring server-side session referenced by an `HttpOnly`, `SameSite=Lax` cookie and `Secure` under HTTPS.
-- A synchronizer CSRF token stored hashed, compared in constant time, plus an allowed-origin check when the `Origin` header is present.
+- A synchronizer CSRF token stored hashed and compared in constant time, plus a required exact allowed-origin check.
 - Preparation ID.
 - Preparation digest.
 - A short-lived, single-use confirmation-intent nonce bound to the rendered session, preparation, digest, and constraint/cart state.
@@ -496,7 +496,11 @@ The same model receives the OrderSeal tools and follows the protected workflow. 
 - One unscored feasibility case per condition before freeze proves both can complete a normal task within shared limits.
 - Pre-register 24 paired `(case, repeat)` blocks. Randomize condition order for repeat one and reverse it for repeat two, then randomize block order with a recorded seed.
 
-The approval event for both conditions binds run, condition, hashed session, actor (`human` or `scripted_evaluator`), displayed-cart digest, decision, visible time, decision time, and server receipt time. A scripted event is not reported as human cognitive time.
+The approval event for both conditions binds run, condition, hashed session,
+actor (`browser_operator_unverified` or `scripted_evaluator`), displayed-cart
+digest, decision, visible time, decision time, and server receipt time. A
+browser event proves the channel, not human identity; a scripted event is not
+reported as human cognitive time.
 
 ### Case set
 
