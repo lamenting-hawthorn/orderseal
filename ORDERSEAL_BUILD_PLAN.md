@@ -4,7 +4,7 @@
 **Project:** OrderSeal — evidence-first checkout under uncertainty
 **Workspace:** `/Users/raghav/Documents/ChatGPT/Frontier Engineering Challenge 2026`
 **Submission deadline:** 2026-08-31 18:00 UTC / 23:30 IST
-**Ground state:** Git repository on `main`; provenance/skeleton commit `688cd3e`; independently reviewed Phase 1 application commit `f61a5d3`; independently reviewed Phase 2 working-tree slice based on `06f8d58` is accepted for commit.
+**Ground state:** Git repository on `main`; provenance/skeleton commit `688cd3e`; independently reviewed Phase 1 application commit `f61a5d3`; independently reviewed Phase 2 model-agent commit `0bcf828`.
 **Safety framing:** All products, accounts, money, addresses, and order effects are synthetic. The design deliberately models a consequential action so structural human approval, idempotency, prompt-injection resistance, and ambiguous-outcome reconciliation can be evaluated safely.
 
 ## 1. Objective
