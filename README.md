@@ -10,14 +10,22 @@ This repository does not connect to payments or real commerce systems.
 
 ## Current status
 
-Phase 1 bounded-effect slice accepted by an independent local veto review.
-Phase 2's seven-tool static investigation registry passed an independent local
-veto review. One authorized live exact-SKU run reached
+Phase 1 bounded-effect slice and Phase 2's seven-tool investigation registry
+passed independent local veto reviews. One authorized live exact-SKU run reached
 `ready_for_confirmation` without exposing a confirmation capability; see
 `PHASE2_LIVE_RECEIPT.json`.
 Gate Zero passed through OpenRouter with
 `openai/gpt-5.6-luna`; see `GATE_ZERO_RECEIPT.json`. The local public-route
-41 local tests cover both phases. The suite proves a functional server-rendered
+Phase 3's evaluation foundation now includes a separate DirectBuy registry, a
+query-only raw-SQLite oracle, frozen C01-C12 manifests, and a seeded 48-row AB/BA
+assignment ledger. An unscored live feasibility probe made both conditions
+commit once and reconcile a simulated lost acknowledgement; see
+`PHASE3_FEASIBILITY_RECEIPT.json`. The full candidate remains demo-only for the
+case matrix, so preregistration and the 48 scored model runs are intentionally
+blocked. The offline 48-run command is harness-plumbing evidence only; its
+scores are not model-performance results.
+
+52 local tests cover the current implementation. The suite proves a functional server-rendered
 confirmation, provenance that labels
 the browser operator as unverified rather than asserting human identity, one
 atomic stock/order effect,
@@ -33,6 +41,8 @@ uv run pytest -q
 uv run python -m app.db reset --path orderseal.db --seed orderseal-v1
 uv run uvicorn app.main:app
 uv run python live_agent_probe.py
+uv run python phase3_feasibility_probe.py
+uv run python -m evals.run --simulated --output artifacts/<new-run-set>
 ```
 
 Open `http://127.0.0.1:8000`. The local HTTP configuration intentionally omits
@@ -43,6 +53,11 @@ enables secure cookies. The health endpoint is `GET /health`.
 Live model calls require a git-ignored `.env` containing
 `ORDERSEAL_BASE_URL`, `ORDERSEAL_MODEL`, and `ORDERSEAL_API_KEY`. Never commit
 or paste the key into logs, issues, or chat.
+
+`evals/assignments.jsonl` is the planned denominator ledger. Do not edit it or
+start a scored run until a reviewed `preregistration.json` exists. Every scored
+timeout, provider error, crash, malformed output, and missing artifact will stay
+in the denominator; selective reruns are prohibited.
 
 ## Evidence boundary
 

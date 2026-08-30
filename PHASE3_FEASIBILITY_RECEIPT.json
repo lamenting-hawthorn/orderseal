@@ -1,0 +1,58 @@
+{
+  "candidate": {
+    "fault_proof": true,
+    "ok": true,
+    "order_count": 1,
+    "reason": "prepared",
+    "reconciled": true,
+    "status": "ready_for_confirmation",
+    "tools": [
+      "search_catalog",
+      "inspect_product",
+      "set_cart",
+      "validate_cart",
+      "prepare_order"
+    ],
+    "usage": {
+      "completion_tokens": 134,
+      "prompt_tokens": 2793,
+      "total_tokens": 2927
+    }
+  },
+  "candidate_sha256": {
+    "app/agent.py": "17100d5a237062f6be1d49c0eedb42c07bd242d9356b6115d369b60d4c0137e9",
+    "app/baseline.py": "3e0dab4a0927f7f5637a788075b462f1a1a06f2c813db8d0e95cafde585b06a9",
+    "app/db.py": "9a17ec2f0736c8537b62e32a3fb9f2db7f138044c217c91badb4b50069885999",
+    "app/domain.py": "2aaf0fdb3b63eef61fcb597e54e6e68498a9f4ba915bd8b566c8eb3c0e8c254e",
+    "phase3_feasibility_probe.py": "f254cb0ccaeb8c0799cb56896ceee1816ec97eba4c03fb8fdf2ba313b7483033"
+  },
+  "directbuy": {
+    "fault_proof": true,
+    "ok": true,
+    "order_count": 1,
+    "reason": "placed_and_reconciled",
+    "reconciled": true,
+    "status": "complete",
+    "tools": [
+      "search_catalog",
+      "inspect_product",
+      "set_cart",
+      "place_order",
+      "get_order_history"
+    ],
+    "usage": {
+      "completion_tokens": 177,
+      "prompt_tokens": 2964,
+      "total_tokens": 3141
+    }
+  },
+  "dirty_candidate": true,
+  "fault_profile": "post_commit_ack_loss",
+  "model_requested": "openai/gpt-5.6-luna",
+  "ok": true,
+  "proof_layer": "unscored_live_provider_local_sqlite",
+  "provider_base_url": "https://openrouter.ai/api/v1",
+  "schema_version": 1,
+  "source_revision": "08ac657d8f35d43b8e2e410b08d4855cb86d1e3c",
+  "timestamp_utc": "2026-08-30T00:46:15.750749+00:00"
+}

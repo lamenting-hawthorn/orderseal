@@ -65,3 +65,38 @@ or removed experiments remain visible.
   remains HOLD.
 - **Lesson:** preparation can be model-requested while confirmation authority
   remains server-held and browser-scoped.
+
+## 2026-08-30 — Fair baseline and evaluation foundation
+
+- **Hypothesis:** a separate conventional DirectBuy registry plus a raw-SQLite,
+  query-only oracle can measure prompted retry safety against OrderSeal's
+  structural safety without deliberately crippling the baseline.
+- **Intervention:** added DirectBuy search/inspect/cart/direct-order/history tools
+  on the same bounded model loop, exact-cart scripted approval, atomic stock and
+  order integrity, frozen C01-C12 expectations, a seeded 48-row AB/BA ledger,
+  fresh-database simulation, and condition-blind scoring from raw rows.
+- **Observed:** the first unscored live DirectBuy probe held after cart setup
+  because its prompt waited for a nonexistent separate approval signal. The
+  prompt was narrowed to explain just-in-time harness approval; the second live
+  probe placed once and reconciled through order history. The candidate also
+  prepared, committed once through its protected context, and reconciled. A
+  fresh veto then found two oracle bypasses: wrong-run/wrong-condition approval
+  reuse and fault-row-only reconciliation. Both were repaired with exact
+  assignment/condition binding and ordered run/order-bound fault evidence. A
+  second veto found that a correct-looking approval received after commit could
+  still authorize the candidate result; the oracle now requires exactly one
+  matching approval received no later than the durable confirmation time, with
+  post-hoc laundering and duplicate-approval regression checks. The local gate
+  is 52 tests plus Ruff and mypy. A 48-row
+  offline simulation retains four known
+  OrderSeal failures (both C04 and C12 repeats); this is plumbing evidence, not
+  model-performance evidence.
+- **Evidence:** `PHASE3_FEASIBILITY_RECEIPT.json`, `evals/assignments.jsonl`,
+  `tests/test_evaluation.py`, and ignored `artifacts/phase3-sim-002/`. The live
+  receipt must be regenerated after the exact candidate stabilizes.
+- **Decision:** keep preregistration and all scored runs on HOLD until the real
+  candidate supports the full frozen case matrix and a fresh veto passes. Do not
+  make the scripted simulation green by weakening cases or hard-coding scores.
+- **Lesson:** approval and fault evidence are evaluation authority; both must be
+  bound to the exact assignment and independent event sequence, not inferred
+  from a convenient row or agent claim.

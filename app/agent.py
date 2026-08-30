@@ -5,7 +5,7 @@ import ssl
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 from urllib.parse import urlparse
@@ -89,6 +89,24 @@ class ToolContext:
     connection: Any
     state: AgentState
     clock: Any
+    preparation_actor: str = "browser_operator_unverified"
+    confirmation_method: str = "browser_ui"
+    fault_kind: str | None = None
+
+
+ToolHandler = Callable[[ToolContext, BaseModel], dict[str, object]]
+ToolCompletion = Callable[
+    [ToolContext, dict[str, object]], tuple[str, str] | None
+]
+
+
+@dataclass(frozen=True)
+class ToolProgram:
+    schemas: list[dict[str, Any]]
+    argument_models: Mapping[str, type[BaseModel]]
+    handlers: Mapping[str, ToolHandler]
+    completion: ToolCompletion
+    stopped_reason: str
 
 
 class StrictArguments(BaseModel):
@@ -299,8 +317,9 @@ def _prepare_order(context: ToolContext, _arguments: BaseModel) -> dict[str, obj
         prepared = prepare_demo(
             context.connection,
             context.clock(),
-            actor="browser_operator_unverified",
-            confirmation_method="browser_ui",
+            actor=context.preparation_actor,
+            confirmation_method=context.confirmation_method,
+            fault_kind=context.fault_kind,
         )
     except DomainError as error:
         return {"status": "held", "reason": error.code}
@@ -360,7 +379,7 @@ TOOL_ARGUMENT_MODELS: dict[str, type[BaseModel]] = {
     "get_order_status": EmptyArguments,
     "get_receipt": EmptyArguments,
 }
-TOOL_HANDLERS = {
+TOOL_HANDLERS: dict[str, ToolHandler] = {
     "search_catalog": _search_catalog,
     "inspect_product": _inspect_product,
     "set_cart": _set_cart,
@@ -405,24 +424,15 @@ def _held(
     )
 
 
-def investigate_exact_sku(
-    connection: Any,
-    brief: str,
+def run_tool_program(
+    context: ToolContext,
+    messages: list[dict[str, Any]],
     caller: ModelCaller,
-    *,
-    clock: Any,
+    program: ToolProgram,
     monotonic: Callable[[], float] = time.monotonic,
 ) -> AgentOutcome:
-    if brief.strip() != SUPPORTED_BRIEF:
-        return AgentOutcome("needs_user", "unsupported_brief", False, (), None, {})
-
-    state = AgentState()
-    context = ToolContext(connection, state, clock)
+    state = context.state
     trajectory: list[dict[str, object]] = []
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": brief},
-    ]
     total_tool_calls = 0
     usage: dict[str, int] = {}
     model: str | None = None
@@ -435,7 +445,7 @@ def investigate_exact_sku(
         try:
             turn = caller(
                 messages,
-                TOOL_SCHEMAS,
+                program.schemas,
                 min(PROVIDER_TIMEOUT_SECONDS, remaining_seconds),
             )
         except ProviderError:
@@ -452,7 +462,7 @@ def investigate_exact_sku(
             status = "needs_user" if state.cart is None else "held"
             return AgentOutcome(
                 status,
-                "model_stopped_before_preparation",
+                program.stopped_reason,
                 state.prepared is not None,
                 tuple(trajectory),
                 model,
@@ -490,7 +500,7 @@ def investigate_exact_sku(
             if (
                 not isinstance(name, str)
                 or not 1 <= len(name) <= 80
-                or name not in TOOL_HANDLERS
+                or name not in program.handlers
                 or not isinstance(raw_arguments, str)
             ):
                 trajectory.append(
@@ -503,7 +513,7 @@ def investigate_exact_sku(
                 return _held("unknown_tool", state, trajectory, model, usage)
             try:
                 parsed_object = _load_object_without_duplicates(raw_arguments)
-                arguments = TOOL_ARGUMENT_MODELS[name].model_validate(parsed_object)
+                arguments = program.argument_models[name].model_validate(parsed_object)
             except (
                 UnicodeError,
                 TypeError,
@@ -521,7 +531,7 @@ def investigate_exact_sku(
                 return _held("invalid_tool_arguments", state, trajectory, model, usage)
 
             tool_started = monotonic()
-            result = TOOL_HANDLERS[name](context, arguments)
+            result = program.handlers[name](context, arguments)
             if monotonic() - tool_started > TOOL_TIMEOUT_SECONDS:
                 return _held("tool_timeout", state, trajectory, model, usage)
             if monotonic() >= deadline:
@@ -538,17 +548,54 @@ def investigate_exact_sku(
             )
             if outcome == "held":
                 return _held(f"{name}_held", state, trajectory, model, usage)
-            if state.prepared is not None:
+            completion = program.completion(context, result)
+            if completion is not None:
+                status, reason = completion
                 return AgentOutcome(
-                    "ready_for_confirmation",
-                    "prepared",
-                    True,
+                    status,
+                    reason,
+                    state.prepared is not None,
                     tuple(trajectory),
                     model,
                     usage,
                 )
 
     return _held("model_response_limit", state, trajectory, model, usage)
+
+
+def _candidate_completion(
+    context: ToolContext, _result: dict[str, object]
+) -> tuple[str, str] | None:
+    if context.state.prepared is None:
+        return None
+    return "ready_for_confirmation", "prepared"
+
+
+CANDIDATE_PROGRAM = ToolProgram(
+    schemas=TOOL_SCHEMAS,
+    argument_models=TOOL_ARGUMENT_MODELS,
+    handlers=TOOL_HANDLERS,
+    completion=_candidate_completion,
+    stopped_reason="model_stopped_before_preparation",
+)
+
+
+def investigate_exact_sku(
+    connection: Any,
+    brief: str,
+    caller: ModelCaller,
+    *,
+    clock: Any,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> AgentOutcome:
+    if brief.strip() != SUPPORTED_BRIEF:
+        return AgentOutcome("needs_user", "unsupported_brief", False, (), None, {})
+    context = ToolContext(connection, AgentState(), clock)
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": brief},
+    ]
+    return run_tool_program(context, messages, caller, CANDIDATE_PROGRAM, monotonic)
 
 
 class OpenRouterCaller:

@@ -100,6 +100,11 @@ def test_registry_is_exact_and_excludes_confirmation_capability() -> None:
         "get_receipt",
     )
     assert [tool["function"]["name"] for tool in TOOL_SCHEMAS] == list(tool_names())
+    assert {
+        "confirm_order",
+        "place_order",
+        "record_evaluation_approval",
+    }.isdisjoint(tool_names())
     assert "confirm_order" not in canonical_json(TOOL_SCHEMAS)
 
 
@@ -162,6 +167,7 @@ def test_catalogue_description_is_typed_untrusted_tool_data(
     ("name", "arguments", "expected_reason"),
     [
         ("confirm_order", {}, "unknown_tool"),
+        ("place_order", {}, "unknown_tool"),
         ("prepare_order", {"operation_key": "model-owned"}, "invalid_tool_arguments"),
         (
             "set_cart",

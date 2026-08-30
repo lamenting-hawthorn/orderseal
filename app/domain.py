@@ -736,3 +736,127 @@ def _receipt_after_effect(
         return _receipt_for_order(connection, order_id)
     except Exception as error:
         raise AcknowledgementUnknown from error
+
+
+def displayed_cart(
+    connection: sqlite3.Connection, *, sku: str, quantity: int
+) -> dict[str, Any]:
+    if not 1 <= quantity <= 1_000:
+        raise DomainError("quantity_invalid")
+    product = connection.execute(
+        """
+        SELECT id, sku, name, unit_price_paise, stock_quantity,
+               delivery_days, version, active
+        FROM products WHERE sku = ?
+        """,
+        (sku,),
+    ).fetchone()
+    if product is None or not product["active"]:
+        raise DomainError("product_unavailable")
+    if product["stock_quantity"] < quantity:
+        raise DomainError("insufficient_stock")
+    subtotal_paise = product["unit_price_paise"] * quantity
+    snapshot = {
+        "sku": product["sku"],
+        "name": product["name"],
+        "quantity": quantity,
+        "unit_price_paise": product["unit_price_paise"],
+        "product_version": product["version"],
+        "delivery_days": product["delivery_days"],
+        "shipping_paise": 0,
+        "tax_paise": 0,
+        "total_paise": subtotal_paise,
+    }
+    return {
+        **snapshot,
+        "displayed_cart_digest": digest("orderseal-displayed-cart-v1", snapshot),
+    }
+
+
+def create_evaluation_session(
+    connection: sqlite3.Connection, now_epoch: int
+) -> str:
+    session_id = random_id("ses")
+    discarded_csrf = secrets.token_urlsafe(32)
+    connection.execute(
+        "INSERT INTO sessions VALUES (?, ?, ?, ?)",
+        (
+            session_id,
+            hash_capability(discarded_csrf),
+            now_epoch + SESSION_TTL_SECONDS,
+            now_epoch,
+        ),
+    )
+    return session_id
+
+
+def record_evaluation_approval(
+    connection: sqlite3.Connection,
+    *,
+    run_id: str,
+    condition: str,
+    session_id: str,
+    displayed_cart_digest: str,
+    decision: str,
+    actor: str,
+    displayed_at_monotonic_ms: int,
+    decided_at_monotonic_ms: int,
+    server_received_at_epoch: int,
+) -> str:
+    if condition not in {"directbuy", "orderseal"}:
+        raise ValueError("invalid evaluation condition")
+    if decision not in {"approved", "rejected"}:
+        raise ValueError("invalid approval decision")
+    if actor not in {"browser_operator_unverified", "scripted_evaluator"}:
+        raise ValueError("invalid approval actor")
+    approval_event_id = random_id("evalapproval")
+    connection.execute(
+        """
+        INSERT INTO evaluation_approval_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            approval_event_id,
+            run_id,
+            condition,
+            hash_capability(session_id),
+            displayed_cart_digest,
+            decision,
+            actor,
+            displayed_at_monotonic_ms,
+            decided_at_monotonic_ms,
+            server_received_at_epoch,
+        ),
+    )
+    return approval_event_id
+
+
+def record_evaluation_fault_delivery(
+    connection: sqlite3.Connection,
+    *,
+    run_id: str,
+    condition: str,
+    order_id: str,
+    commit_observed_monotonic_ms: int,
+    injector_triggered_monotonic_ms: int,
+    acknowledgement_suppressed_monotonic_ms: int,
+    response_returned_monotonic_ms: int,
+) -> str:
+    if condition not in {"directbuy", "orderseal"}:
+        raise ValueError("invalid evaluation condition")
+    event_id = random_id("evalfault")
+    connection.execute(
+        """
+        INSERT INTO evaluation_fault_events VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            event_id,
+            run_id,
+            condition,
+            hash_capability(order_id),
+            commit_observed_monotonic_ms,
+            injector_triggered_monotonic_ms,
+            acknowledgement_suppressed_monotonic_ms,
+            response_returned_monotonic_ms,
+        ),
+    )
+    return event_id
