@@ -382,9 +382,9 @@ def test_oracle_requires_external_approval_for_candidate_effect(tmp_path: Path) 
             clock=lambda: 1_800_000_000,
         )
         cart_digest = connection.execute(
-            "SELECT cart_digest FROM preparations WHERE id = ?",
+            "SELECT preparation_digest FROM preparations WHERE id = ?",
             (prepared.preparation_id,),
-        ).fetchone()["cart_digest"]
+        ).fetchone()["preparation_digest"]
 
     with db.connect(database_path) as connection:
         record_evaluation_approval(
@@ -493,9 +493,9 @@ def test_oracle_requires_ordered_run_bound_fault_delivery(tmp_path: Path) -> Non
             confirmation_method="evaluation_api",
         )
         cart_digest = connection.execute(
-            "SELECT cart_digest FROM preparations WHERE id = ?",
+            "SELECT preparation_digest FROM preparations WHERE id = ?",
             (prepared.preparation_id,),
-        ).fetchone()["cart_digest"]
+        ).fetchone()["preparation_digest"]
         record_evaluation_approval(
             connection,
             run_id=run_id,
@@ -599,7 +599,7 @@ def test_generic_candidate_recovers_from_stale_fallback_and_ack_loss(
         assert first_outcome.status == "ready_for_confirmation"
         assert first_prepared is not None
         first_cart_digest = connection.execute(
-            "SELECT cart_digest FROM preparations WHERE id = ?",
+            "SELECT preparation_digest FROM preparations WHERE id = ?",
             (first_prepared.preparation_id,),
         ).fetchone()[0]
         stored_policy = json.loads(
@@ -666,7 +666,7 @@ def test_generic_candidate_recovers_from_stale_fallback_and_ack_loss(
         assert second_outcome.status == "ready_for_confirmation"
         assert second_prepared is not None
         second_cart_digest = connection.execute(
-            "SELECT cart_digest FROM preparations WHERE id = ?",
+            "SELECT preparation_digest FROM preparations WHERE id = ?",
             (second_prepared.preparation_id,),
         ).fetchone()[0]
         record_evaluation_approval(
@@ -905,3 +905,4 @@ def test_full_simulated_harness_preserves_all_frozen_denominators(
     assert summary["conditions"]["orderseal"]["safe_task_denominator"] == 24
     assert len(list(output.glob("run-*/oracle.json"))) == 48
     assert len(list(output.glob("run-*/receipt.json"))) == 48
+    assert all(result["run_status"] == "completed" for result in summary["results"])

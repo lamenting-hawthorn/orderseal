@@ -16,22 +16,18 @@ passed independent local veto reviews. One authorized live exact-SKU run reached
 `PHASE2_LIVE_RECEIPT.json`.
 Gate Zero passed through OpenRouter with
 `openai/gpt-5.6-luna`; see `GATE_ZERO_RECEIPT.json`. The local public-route
-Phase 3's evaluation foundation now includes a separate DirectBuy registry, a
-query-only raw-SQLite oracle, frozen C01-C12 manifests, and a seeded 48-row AB/BA
-assignment ledger. An unscored live feasibility probe made both conditions
-commit once and reconcile a simulated lost acknowledgement; see
-`PHASE3_FEASIBILITY_RECEIPT.json`. The candidate is not yet connected to the
-model-driven case runner. Its generic server-policy path now has deterministic
-coverage for clarification, comparison/no-order, landed-budget, late/missing
-delivery, fallback choice, stale review, prompt-injection data, and
-acknowledgement-loss reconciliation, including the composite fallback path. An
-independent case-policy input manifest is now digest-bound into each generic
-preparation, but it and the fair model-driven runner are not yet reviewed and
-frozen, so preregistration and the 48 scored model runs remain blocked. The
-offline 48-run command is harness-plumbing evidence only; its scores are not
-model-performance results.
+Phase 3 now includes separate OrderSeal and DirectBuy registries, independent
+case-policy inputs, a query-only raw-SQLite scorer, frozen C01-C12 manifests, and
+a seeded 48-row AB/BA assignment ledger. The oracle-blind paired provider runner
+uses a fresh database and aggregate budget per assignment, binds equal pair
+parameters, retains every failure in the denominator without retry, records a
+strict model-produced claim separately from SQLite evidence, and fails closed on
+model drift. DirectBuy now receives the same request, landed pricing, policy,
+approval, mutation, provider route, and fault schedule while retaining its
+conventional direct-action boundary. A fresh independent veto passed this
+bounded runner slice. No C01-C12 provider or scored run has been executed.
 
-65 local tests cover the current implementation. The suite proves a functional server-rendered
+79 local tests cover the current implementation. The suite proves a functional server-rendered
 confirmation, provenance that labels
 the browser operator as unverified rather than asserting human identity, one
 atomic stock/order effect,
@@ -49,6 +45,7 @@ uv run uvicorn app.main:app
 uv run python live_agent_probe.py
 uv run python phase3_feasibility_probe.py
 uv run python -m evals.run --simulated --output artifacts/<new-run-set>
+uv run python -m evals.preregister
 ```
 
 Open `http://127.0.0.1:8000`. The local HTTP configuration intentionally omits
@@ -56,12 +53,20 @@ the cookie `Secure` attribute so the documented local path works. Set
 `ORDERSEAL_ORIGIN` to the exact HTTPS origin in an HTTPS environment; this also
 enables secure cookies. The health endpoint is `GET /health`.
 
-Live model calls require a git-ignored `.env` containing
+The browser probes use a git-ignored `.env` containing
 `ORDERSEAL_BASE_URL`, `ORDERSEAL_MODEL`, and `ORDERSEAL_API_KEY`. Never commit
 or paste the key into logs, issues, or chat.
 
-`evals/assignments.jsonl` is the planned denominator ledger. Do not edit it or
-start a scored run until a reviewed `preregistration.json` exists. Every scored
+The scored runner reads only `OPENAI_API_KEY`; endpoint, model, and routing are
+code-frozen rather than environment-selectable. The OpenRouter contract is
+`https://openrouter.ai/api/v1`, model
+`openai/gpt-5.6-luna`, upstream provider `openai`, no provider fallback, and
+temperature zero. Do not invoke `python -m evals.runner` until the committed
+`preregistration.json` has been reviewed and the project owner separately
+authorizes the full 48-row run.
+
+`evals/assignments.jsonl` is the sole denominator ledger. Do not edit it after
+the immutable `preregistration.json` freeze. Every scored
 timeout, provider error, crash, malformed output, and missing artifact will stay
 in the denominator; selective reruns are prohibited.
 

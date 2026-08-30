@@ -84,6 +84,18 @@ class AgentOutcome:
     usage: dict[str, int]
 
 
+@dataclass
+class RunBudget:
+    deadline: float | None = None
+    model_responses: int = 0
+    tool_calls: int = 0
+    models: set[str] = field(default_factory=set)
+    missing_model_responses: int = 0
+    last_model: str | None = None
+    usage: dict[str, int] = field(default_factory=dict)
+    trajectory: list[dict[str, object]] = field(default_factory=list)
+
+
 @dataclass(frozen=True)
 class CandidatePolicy:
     allowed_skus: tuple[str, ...]
@@ -624,18 +636,25 @@ def run_tool_program(
     caller: ModelCaller,
     program: ToolProgram,
     monotonic: Callable[[], float] = time.monotonic,
+    budget: RunBudget | None = None,
 ) -> AgentOutcome:
     state = context.state
     trajectory: list[dict[str, object]] = []
-    total_tool_calls = 0
     usage: dict[str, int] = {}
     model: str | None = None
-    deadline = monotonic() + RUN_TIMEOUT_SECONDS
+    active_budget = budget or RunBudget()
+    if active_budget.deadline is None:
+        active_budget.deadline = monotonic() + RUN_TIMEOUT_SECONDS
 
-    for _response_number in range(MAX_MODEL_RESPONSES):
-        remaining_seconds = deadline - monotonic()
+    def record_trajectory(row: dict[str, object]) -> None:
+        trajectory.append(row)
+        active_budget.trajectory.append(row)
+
+    while active_budget.model_responses < MAX_MODEL_RESPONSES:
+        remaining_seconds = active_budget.deadline - monotonic()
         if remaining_seconds <= 0:
             return _held("run_timeout", state, trajectory, model, usage)
+        active_budget.model_responses += 1
         try:
             turn = caller(
                 messages,
@@ -644,15 +663,39 @@ def run_tool_program(
             )
         except ProviderError:
             return _held("provider_error", state, trajectory, model, usage)
-        if monotonic() >= deadline:
+        if monotonic() >= active_budget.deadline:
             return _held("run_timeout", state, trajectory, model, usage)
         model = turn.model or model
+        if turn.model is not None:
+            active_budget.models.add(turn.model)
+            active_budget.last_model = turn.model
+        else:
+            active_budget.missing_model_responses += 1
         for key, value in turn.usage.items():
             if key in {"prompt_tokens", "completion_tokens", "total_tokens"}:
                 usage[key] = usage.get(key, 0) + value
+                active_budget.usage[key] = active_budget.usage.get(key, 0) + value
 
         tool_calls = turn.message.get("tool_calls")
         if not isinstance(tool_calls, list) or not tool_calls:
+            if program.stopped_status == "needs_user":
+                content = turn.message.get("content")
+                if (
+                    not isinstance(content, str)
+                    or content.count("?") != 1
+                    or any(ord(character) < 32 and character not in "\n\t" for character in content)
+                ):
+                    return _held(
+                        "clarification_not_requested", state, trajectory, model, usage
+                    )
+                return AgentOutcome(
+                    "needs_user",
+                    "clarification_requested",
+                    state.prepared is not None,
+                    tuple(trajectory),
+                    model,
+                    usage,
+                )
             return AgentOutcome(
                 program.stopped_status,
                 program.stopped_reason,
@@ -661,9 +704,9 @@ def run_tool_program(
                 model,
                 usage,
             )
-        if total_tool_calls + len(tool_calls) > MAX_TOOL_CALLS:
+        if active_budget.tool_calls + len(tool_calls) > MAX_TOOL_CALLS:
             return _held("tool_call_limit", state, trajectory, model, usage)
-        total_tool_calls += len(tool_calls)
+        active_budget.tool_calls += len(tool_calls)
         messages.append(
             {
                 "role": "assistant",
@@ -696,7 +739,7 @@ def run_tool_program(
                 or name not in program.handlers
                 or not isinstance(raw_arguments, str)
             ):
-                trajectory.append(
+                record_trajectory(
                     {
                         "event": "tool_rejected",
                         "tool": "<unknown>",
@@ -714,7 +757,7 @@ def run_tool_program(
                 ValidationError,
                 json.JSONDecodeError,
             ):
-                trajectory.append(
+                record_trajectory(
                     {
                         "event": "tool_rejected",
                         "tool": name,
@@ -727,13 +770,13 @@ def run_tool_program(
             result = program.handlers[name](context, arguments)
             if monotonic() - tool_started > TOOL_TIMEOUT_SECONDS:
                 return _held("tool_timeout", state, trajectory, model, usage)
-            if monotonic() >= deadline:
+            if monotonic() >= active_budget.deadline:
                 return _held("run_timeout", state, trajectory, model, usage)
             serialized_result = canonical_json(result)
             if len(serialized_result.encode()) > MAX_TOOL_RESULT_BYTES:
                 return _held("tool_result_limit", state, trajectory, model, usage)
             outcome = str(result.get("status", "unknown"))
-            trajectory.append(
+            record_trajectory(
                 {"event": "tool_result", "tool": name, "outcome": outcome}
             )
             messages.append(
@@ -839,15 +882,39 @@ def investigate_exact_sku(
 
 
 class OpenRouterCaller:
-    def __init__(self, *, base_url: str, model: str, api_key: str) -> None:
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        model: str,
+        api_key: str,
+        provider_slug: str | None = None,
+    ) -> None:
         parsed_url = urlparse(base_url)
-        if parsed_url.scheme != "https" or not parsed_url.netloc:
+        if (
+            parsed_url.scheme != "https"
+            or not parsed_url.netloc
+            or parsed_url.username is not None
+            or parsed_url.password is not None
+            or parsed_url.query
+            or parsed_url.fragment
+        ):
             raise ValueError("base_url must be absolute HTTPS")
         if not model or not api_key:
             raise ValueError("model and api_key are required")
+        if provider_slug is not None and (
+            not provider_slug
+            or len(provider_slug) > 160
+            or any(
+                not (character.islower() or character.isdigit() or character in "-/")
+                for character in provider_slug
+            )
+        ):
+            raise ValueError("invalid provider slug")
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._api_key = api_key
+        self._provider_slug = provider_slug
 
     def __call__(
         self,
@@ -860,11 +927,22 @@ class OpenRouterCaller:
         payload = {
             "model": self._model,
             "messages": messages,
-            "tools": tools,
-            "tool_choice": "auto",
-            "parallel_tool_calls": False,
             "temperature": 0,
         }
+        if tools:
+            payload.update(
+                {
+                    "tools": tools,
+                    "tool_choice": "auto",
+                    "parallel_tool_calls": False,
+                }
+            )
+        if self._provider_slug is not None:
+            payload["provider"] = {
+                "order": [self._provider_slug],
+                "allow_fallbacks": False,
+                "require_parameters": True,
+            }
         request = urllib.request.Request(
             f"{self._base_url}/chat/completions",
             data=canonical_json(payload).encode(),

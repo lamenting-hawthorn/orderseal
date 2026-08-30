@@ -109,9 +109,9 @@ def _simulate_candidate(
         ),
     )
     cart_digest = connection.execute(
-        "SELECT cart_digest FROM preparations WHERE id = ?",
+        "SELECT preparation_digest FROM preparations WHERE id = ?",
         (prepared.preparation_id,),
-    ).fetchone()["cart_digest"]
+    ).fetchone()["preparation_digest"]
     _record_approval(
         connection,
         run_id=assignment["run_id"],

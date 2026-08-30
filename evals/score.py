@@ -22,7 +22,8 @@ def _raw_effect_rows(connection: sqlite3.Connection) -> list[dict[str, Any]]:
     candidate = connection.execute(
         """
         SELECT 'orderseal' AS source, NULL AS effect_run_id,
-               o.id AS order_id, o.session_id, p.cart_digest,
+               o.id AS order_id, o.session_id,
+               p.preparation_digest AS cart_digest,
                ce.id AS approval_event_id, ce.decision,
                oi.sku, oi.quantity, oi.unit_price_paise,
                pi.delivery_days, o.total_paise, o.confirmed_at_epoch,

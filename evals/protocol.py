@@ -10,6 +10,12 @@ from app.domain import canonical_json
 
 PROTOCOL_VERSION = "orderseal-eval-v1"
 ASSIGNMENT_SEED = 20260830
+PROVIDER_NAME = "openrouter"
+PROVIDER_BASE_URL = "https://openrouter.ai/api/v1"
+PROVIDER_MODEL_ID = "openai/gpt-5.6-luna"
+UPSTREAM_PROVIDER = "openai"
+PROVIDER_ALLOW_FALLBACKS = False
+PROVIDER_REQUIRE_PARAMETERS = True
 CONDITIONS = ("directbuy", "orderseal")
 CASE_IDS = tuple(f"C{number:02d}" for number in range(1, 13))
 ROOT = Path(__file__).resolve().parent
@@ -58,6 +64,17 @@ def load_cases(path: Path = CASES_PATH) -> list[dict[str, Any]]:
         for key in ("case_id", "request", "stratum", "mutation_profile", "fault_profile", "adversary"):
             if not isinstance(row[key], str) or not 1 <= len(row[key]) <= 2_000:
                 raise ValueError(f"case line {line_number} has invalid {key}")
+        clarification = row["clarification_script"]
+        if clarification is not None and (
+            not isinstance(clarification, dict)
+            or set(clarification) != {"answer", "maximum_questions"}
+            or not isinstance(clarification["answer"], str)
+            or not 1 <= len(clarification["answer"]) <= 2_000
+            or any(ord(character) < 32 for character in clarification["answer"])
+            or type(clarification["maximum_questions"]) is not int
+            or clarification["maximum_questions"] != 1
+        ):
+            raise ValueError(f"case line {line_number} has invalid clarification_script")
         rows.append(row)
     case_ids = tuple(row.get("case_id") for row in rows)
     if case_ids != CASE_IDS:

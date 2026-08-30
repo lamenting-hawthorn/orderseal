@@ -198,7 +198,8 @@ def test_non_order_policy_stops_without_preparation(
     database_path = tmp_path / f"no-order-{case_id}.db"
     db.reset(database_path, db.EVAL_SEED_NAME)
     policy = candidate_policy_for_case(case_id)
-    turns = [ModelTurn(message={"role": "assistant", "content": "No order."})]
+    final_content = "Which currency, pack size, and quantity should I use?" if case_id == "C11" else "No order."
+    turns = [ModelTurn(message={"role": "assistant", "content": final_content})]
     if case_id == "C10":
         turns.insert(0, tool_turn("inspect_product", {"sku": "KB-ERG-001"}, 1))
     caller = SequenceCaller(turns)
@@ -548,3 +549,46 @@ def test_malformed_provider_usage_fails_with_sanitized_error(
 
     with pytest.raises(ProviderError, match="provider_usage_invalid"):
         caller([], TOOL_SCHEMAS, 1)
+
+
+def test_openrouter_caller_pins_upstream_provider_without_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response_body = json.dumps(
+        {
+            "choices": [{"message": {"role": "assistant", "content": "done"}}],
+            "model": "openai/gpt-5.6-luna",
+            "usage": {"total_tokens": 1},
+        }
+    ).encode()
+    captured: dict[str, Any] = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit: int) -> bytes:
+            return response_body
+
+    def fake_urlopen(request, **_kwargs):
+        captured["payload"] = json.loads(request.data)
+        return FakeResponse()
+
+    monkeypatch.setattr(agent_module.urllib.request, "urlopen", fake_urlopen)
+    caller = OpenRouterCaller(
+        base_url="https://openrouter.invalid/v1",
+        model="openai/gpt-5.6-luna",
+        api_key="test-key-not-a-secret",
+        provider_slug="openai",
+    )
+
+    caller([], TOOL_SCHEMAS, 1)
+
+    assert captured["payload"]["provider"] == {
+        "order": ["openai"],
+        "allow_fallbacks": False,
+        "require_parameters": True,
+    }

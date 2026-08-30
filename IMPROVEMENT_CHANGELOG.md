@@ -134,3 +134,29 @@ or removed experiments remain visible.
 - **Lesson:** a frozen oracle may judge an action, but it must never become the
   candidate's source of authority. Input policy and expected output remain
   separate artifacts.
+
+### Experiment 7 — oracle-blind paired provider runner and preregistration gate
+
+- **Hypothesis:** A thin paired runner can preserve the treatment difference
+  while making every shared intervention, failure, claim, and artifact auditable.
+- **Intervention:** added an expectation-free provider runner, policy-parametric
+  DirectBuy prompts and landed totals, exact OpenRouter model/provider routing,
+  aggregate response/tool/time budgets, strict model-returned final claims,
+  preparation-bound approvals, ordered external fault evidence, immutable
+  denominator artifacts, implementation/pair digests, and a clean-tree-only
+  preregistration generator.
+- **Observed:** 79 local tests pass; Ruff, mypy, and diff hygiene are clean. A
+  fresh veto initially found synthesized claims, late DirectBuy fault evidence,
+  missing clarification proof, incomplete candidate approval binding,
+  reconciliation mislabelling, and model drift. Each was reproduced and fixed;
+  a final veto found no HIGH or MEDIUM issue. The documented simulator emits all
+  48 receipts with 24/24 denominators and no failed rows.
+- **Evidence:** `evals/runner.py`, `evals/preregister.py`, `tests/test_runner.py`,
+  and the full local validation commands. This proves deterministic runner and
+  artifact behavior only; it is not C01-C12 model-performance evidence.
+- **Decision:** freeze `preregistration.json` from the clean implementation
+  commit, then keep all 48 provider calls and scoring on HOLD pending separate
+  owner authorization. No selective pilot or retry is permitted.
+- **Lesson:** model output, durable effect observation, and oracle judgment are
+  three separate evidence layers; combining any two makes the comparison look
+  cleaner while making it less trustworthy.

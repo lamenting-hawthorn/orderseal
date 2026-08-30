@@ -771,6 +771,16 @@ One test module is sufficient initially because the system is small. Split it on
 
 **Gate:** All 14 veto tests pass, and one command generates raw receipts plus a query-only comparison for both conditions from frozen assignments; no success metric reads agent prose and the baseline is not deliberately crippled.
 
+**Implementation status (2026-08-30):** The oracle-blind paired runner,
+DirectBuy policy/landed-price parity, exact upstream-provider pin, aggregate
+budgets, model-produced claim contract, failure denominator, immutable run
+directories, source/pair digests, and postcommit fault evidence passed a fresh
+independent veto. The deterministic suite has 79 passing tests; Ruff and mypy
+are clean. The preregistration generator is implemented but must run only from
+a clean committed tree. C01-C12 provider execution, scoring, and result claims
+remain HOLD until the generated manifest is committed, reviewed, and followed
+by separate project-owner authorization for all 48 rows.
+
 ### Phase 4 — minimal visible browser workflow
 
 **Estimate:** 2.5–3 hours
