@@ -67,6 +67,97 @@ def random_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_urlsafe(24)}"
 
 
+def _catalogue_evidence(
+    connection: sqlite3.Connection, skus: list[str]
+) -> list[dict[str, Any]]:
+    evidence: list[dict[str, Any]] = []
+    for sku in skus:
+        row = connection.execute(
+            """
+            SELECT sku, unit_price_paise, stock_quantity, delivery_days, version, active
+            FROM products WHERE sku = ?
+            """,
+            (sku,),
+        ).fetchone()
+        if row is None:
+            evidence.append({"found": False, "sku": sku})
+        else:
+            evidence.append({"found": True, **dict(row)})
+    return evidence
+
+
+def _eligible_under_constraints(
+    evidence: dict[str, Any],
+    *,
+    quantity: int,
+    budget_paise: int,
+    delivery_days_max: int,
+    shipping_paise: int,
+    tax_paise: int,
+) -> bool:
+    return bool(
+        evidence.get("found")
+        and evidence.get("active") == 1
+        and evidence.get("stock_quantity", 0) >= quantity
+        and evidence.get("delivery_days") is not None
+        and evidence["delivery_days"] <= delivery_days_max
+        and evidence["unit_price_paise"] * quantity + shipping_paise + tax_paise
+        <= budget_paise
+    )
+
+
+def _enforce_policy_selection(
+    connection: sqlite3.Connection,
+    *,
+    constraints: dict[str, Any],
+    selected_sku: str,
+    quantity: int,
+    shipping_paise: int,
+    tax_paise: int,
+) -> None:
+    budget_paise = constraints["budget_paise"]
+    delivery_days_max = constraints["delivery_days_max"]
+    fallback_from = constraints.get("fallback_from_skus", [])
+    if fallback_from:
+        live_fallback = _catalogue_evidence(connection, fallback_from)
+        if live_fallback != constraints.get("fallback_evidence"):
+            raise DomainError("fallback_evidence_stale")
+        if any(
+            _eligible_under_constraints(
+                evidence,
+                quantity=quantity,
+                budget_paise=budget_paise,
+                delivery_days_max=delivery_days_max,
+                shipping_paise=shipping_paise,
+                tax_paise=tax_paise,
+            )
+            for evidence in live_fallback
+        ):
+            raise DomainError("fallback_not_justified")
+    if constraints.get("selection_rule", "any") == "lowest_landed_total":
+        allowed = _catalogue_evidence(connection, constraints["allowed_skus"])
+        eligible = [
+            (
+                evidence["unit_price_paise"] * quantity
+                + shipping_paise
+                + tax_paise,
+                evidence["delivery_days"],
+                evidence["sku"],
+            )
+            for evidence in allowed
+            if _eligible_under_constraints(
+                evidence,
+                quantity=quantity,
+                budget_paise=budget_paise,
+                delivery_days_max=delivery_days_max,
+                shipping_paise=shipping_paise,
+                tax_paise=tax_paise,
+            )
+        ]
+        if not eligible or min(eligible)[2] != selected_sku:
+            raise DomainError("selection_rule_mismatch")
+
+
 def preparation_payload(
     *,
     cart_id: str,
@@ -110,12 +201,17 @@ def preparation_payload(
     }
 
 
-def prepare_demo(
+def prepare_order(
     connection: sqlite3.Connection,
     now_epoch: int,
     *,
+    sku: str,
+    quantity: int,
+    constraints: dict[str, Any],
     actor: str,
     confirmation_method: str,
+    shipping_paise: int = 0,
+    tax_paise: int = 0,
     fault_kind: str | None = None,
 ) -> PreparedDemo:
     if actor not in {"browser_operator_unverified", "scripted_evaluator"}:
@@ -124,6 +220,60 @@ def prepare_demo(
         raise ValueError("invalid confirmation method")
     if fault_kind not in {None, "post_commit_ack_loss"}:
         raise ValueError("invalid fault kind")
+    if (
+        not sku
+        or not 1 <= len(sku) <= 80
+        or type(quantity) is not int
+        or not 1 <= quantity <= 1_000
+    ):
+        raise ValueError("invalid cart")
+    if (
+        type(shipping_paise) is not int
+        or shipping_paise < 0
+        or type(tax_paise) is not int
+        or tax_paise < 0
+    ):
+        raise ValueError("invalid pricing adjustment")
+    constraints = json.loads(canonical_json(constraints))
+    allowed_skus = constraints.get("allowed_skus")
+    fallback_from = constraints.get("fallback_from_skus", [])
+    if (
+        type(constraints.get("budget_paise")) is not int
+        or constraints["budget_paise"] < 0
+        or constraints.get("currency") != "INR"
+        or type(constraints.get("delivery_days_max")) is not int
+        or constraints["delivery_days_max"] < 0
+        or constraints.get("items") != [{"quantity": quantity, "sku": sku}]
+        or (
+            allowed_skus is not None
+            and (
+                not isinstance(allowed_skus, list)
+                or sku not in allowed_skus
+                or not all(isinstance(allowed, str) for allowed in allowed_skus)
+            )
+        )
+        or constraints.get("selection_rule", "any")
+        not in {"any", "lowest_landed_total"}
+        or not isinstance(fallback_from, list)
+        or not all(isinstance(preferred, str) for preferred in fallback_from)
+        or len(set(fallback_from)) != len(fallback_from)
+        or (
+            isinstance(allowed_skus, list)
+            and set(allowed_skus) & set(fallback_from)
+        )
+        or (
+            constraints.get("policy_source_digest") is not None
+            and (
+                not isinstance(constraints["policy_source_digest"], str)
+                or len(constraints["policy_source_digest"]) != 64
+                or any(
+                    character not in "0123456789abcdef"
+                    for character in constraints["policy_source_digest"]
+                )
+            )
+        )
+    ):
+        raise ValueError("invalid constraints")
     session_id = random_id("ses")
     csrf_token = secrets.token_urlsafe(32)
     constraint_set_id = random_id("cst")
@@ -133,21 +283,17 @@ def prepare_demo(
     operation_key = random_id("op")
     expires_at_epoch = now_epoch + PREPARATION_TTL_SECONDS
 
-    constraints = json.loads(canonical_json(DEMO_CONSTRAINTS))
-    constraint_json = canonical_json(constraints)
-    constraint_digest = digest("orderseal-constraints-v1", constraints)
     product = connection.execute(
         """
         SELECT id, sku, name, unit_price_paise, stock_quantity,
                delivery_days, version, active
         FROM products WHERE sku = ?
         """,
-        (DEMO_SKU,),
+        (sku,),
     ).fetchone()
     if product is None or not product["active"]:
         raise DomainError("product_unavailable")
 
-    quantity = DEMO_QUANTITY
     if product["stock_quantity"] < quantity:
         raise DomainError("insufficient_stock")
     if product["delivery_days"] is None:
@@ -167,13 +313,17 @@ def prepare_demo(
     }
     items = [item]
     subtotal_paise = item["line_total_paise"]
-    shipping_paise = 0
-    tax_paise = 0
     total_paise = subtotal_paise + shipping_paise + tax_paise
     if total_paise > constraints["budget_paise"]:
         raise DomainError("budget_exceeded")
     if item["delivery_days"] > constraints["delivery_days_max"]:
         raise DomainError("delivery_deadline_unmet")
+    if "fallback_from_skus" in constraints:
+        constraints["fallback_evidence"] = _catalogue_evidence(
+            connection, fallback_from
+        )
+    constraint_json = canonical_json(constraints)
+    constraint_digest = digest("orderseal-constraints-v1", constraints)
 
     cart_digest = digest(
         "orderseal-cart-v1",
@@ -196,6 +346,24 @@ def prepare_demo(
 
     try:
         connection.execute("BEGIN IMMEDIATE")
+        live_product = connection.execute(
+            """
+            SELECT id, sku, name, unit_price_paise, stock_quantity,
+                   delivery_days, version, active
+            FROM products WHERE sku = ?
+            """,
+            (sku,),
+        ).fetchone()
+        if live_product is None or dict(live_product) != dict(product):
+            raise DomainError("quote_stale")
+        _enforce_policy_selection(
+            connection,
+            constraints=constraints,
+            selected_sku=sku,
+            quantity=quantity,
+            shipping_paise=shipping_paise,
+            tax_paise=tax_paise,
+        )
         connection.execute(
             "INSERT INTO sessions VALUES (?, ?, ?, ?)",
             (
@@ -316,6 +484,26 @@ def prepare_demo(
                 {"name": "stock", "state": "proven"},
             ],
         },
+    )
+
+
+def prepare_demo(
+    connection: sqlite3.Connection,
+    now_epoch: int,
+    *,
+    actor: str,
+    confirmation_method: str,
+    fault_kind: str | None = None,
+) -> PreparedDemo:
+    return prepare_order(
+        connection,
+        now_epoch,
+        sku=DEMO_SKU,
+        quantity=DEMO_QUANTITY,
+        constraints=DEMO_CONSTRAINTS,
+        actor=actor,
+        confirmation_method=confirmation_method,
+        fault_kind=fault_kind,
     )
 
 
@@ -540,6 +728,21 @@ def confirm_order(
             for item in current_items
         ):
             raise DomainError("delivery_deadline_unmet")
+        policy_bound = bool(
+            constraints.get("fallback_from_skus")
+            or constraints.get("selection_rule", "any") != "any"
+        )
+        if policy_bound:
+            if len(current_items) != 1:
+                raise DomainError("policy_cart_invalid")
+            _enforce_policy_selection(
+                connection,
+                constraints=constraints,
+                selected_sku=current_items[0]["sku"],
+                quantity=current_items[0]["quantity"],
+                shipping_paise=shipping_paise,
+                tax_paise=tax_paise,
+            )
 
         confirmation_event_id = random_id("approval")
         order_id = random_id("ord")

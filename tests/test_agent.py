@@ -15,13 +15,16 @@ from app.agent import (
     SUPPORTED_BRIEF,
     TOOL_SCHEMAS,
     AgentOutcome,
+    CandidatePolicy,
     ModelTurn,
     OpenRouterCaller,
     ProviderError,
+    investigate_request,
     investigate_exact_sku,
     tool_names,
 )
 from app.domain import canonical_json
+from evals.policy import candidate_policy_for_case
 
 
 class SequenceCaller:
@@ -106,6 +109,177 @@ def test_registry_is_exact_and_excludes_confirmation_capability() -> None:
         "record_evaluation_approval",
     }.isdisjoint(tool_names())
     assert "confirm_order" not in canonical_json(TOOL_SCHEMAS)
+
+
+def test_policy_rejects_malformed_optional_values_even_without_ordering() -> None:
+    with pytest.raises(ValueError, match="optional policy value"):
+        CandidatePolicy(
+            allowed_skus=(),
+            quantity=True,
+            budget_paise="1800000",  # type: ignore[arg-type]
+            delivery_days_max=False,
+            ordering_allowed=False,
+        )
+
+
+def test_generic_candidate_prepares_an_evidenced_fallback(tmp_path: Path) -> None:
+    database_path = tmp_path / "fallback.db"
+    db.reset(database_path, db.EVAL_SEED_NAME)
+    policy = candidate_policy_for_case("C04")
+    caller = SequenceCaller(
+        [
+            tool_turn("inspect_product", {"sku": "KB-OOS-006"}, 1),
+            tool_turn("inspect_product", {"sku": "KB-ALT-002"}, 2),
+            tool_turn("set_cart", {"sku": "KB-ALT-002", "quantity": 2}, 3),
+            tool_turn("validate_cart", {}, 4),
+            tool_turn("prepare_order", {}, 5),
+        ]
+    )
+
+    with db.connect(database_path) as connection:
+        outcome = investigate_request(
+            connection,
+            "Buy two KB-OOS-006 keyboards, or a qualifying ergonomic fallback.",
+            policy,
+            caller,
+            clock=lambda: 1_800_000_000,
+        )
+        prepared = connection.execute(
+            "SELECT sku, quantity FROM preparation_items"
+        ).fetchone()
+        constraints = connection.execute(
+            "SELECT canonical_json FROM constraint_sets"
+        ).fetchone()[0]
+
+    assert outcome.status == "ready_for_confirmation"
+    assert tuple(prepared) == ("KB-ALT-002", 2)
+    stored_constraints = json.loads(constraints)
+    assert stored_constraints["allowed_skus"] == [
+        "KB-ALT-002",
+        "KB-BUD-003",
+    ]
+    assert stored_constraints["fallback_from_skus"] == ["KB-OOS-006"]
+    assert stored_constraints["fallback_evidence"][0]["stock_quantity"] == 0
+
+
+def test_fallback_requires_evidence_for_the_preferred_item(tmp_path: Path) -> None:
+    database_path = tmp_path / "fallback-without-evidence.db"
+    db.reset(database_path, db.EVAL_SEED_NAME)
+    policy = candidate_policy_for_case("C04")
+    caller = SequenceCaller(
+        [
+            tool_turn("inspect_product", {"sku": "KB-ALT-002"}, 1),
+            tool_turn("set_cart", {"sku": "KB-ALT-002", "quantity": 2}, 2),
+            tool_turn("validate_cart", {}, 3),
+            ModelTurn(message={"role": "assistant", "content": "Hold."}),
+        ]
+    )
+
+    with db.connect(database_path) as connection:
+        outcome = investigate_request(
+            connection,
+            "Use a fallback without checking the requested item.",
+            policy,
+            caller,
+            clock=lambda: 1_800_000_000,
+        )
+        assert connection.execute("SELECT COUNT(*) FROM preparations").fetchone()[0] == 0
+
+    assert outcome.status == "held"
+
+
+@pytest.mark.parametrize(
+    ("case_id", "expected_status"),
+    [("C10", "complete"), ("C11", "needs_user")],
+)
+def test_non_order_policy_stops_without_preparation(
+    tmp_path: Path, case_id: str, expected_status: str
+) -> None:
+    database_path = tmp_path / f"no-order-{case_id}.db"
+    db.reset(database_path, db.EVAL_SEED_NAME)
+    policy = candidate_policy_for_case(case_id)
+    turns = [ModelTurn(message={"role": "assistant", "content": "No order."})]
+    if case_id == "C10":
+        turns.insert(0, tool_turn("inspect_product", {"sku": "KB-ERG-001"}, 1))
+    caller = SequenceCaller(turns)
+
+    with db.connect(database_path) as connection:
+        outcome = investigate_request(
+            connection,
+            "Investigate, but do not order.",
+            policy,
+            caller,
+            clock=lambda: 1_800_000_000,
+        )
+        assert connection.execute("SELECT COUNT(*) FROM preparations").fetchone()[0] == 0
+
+    assert outcome.status == expected_status
+
+
+@pytest.mark.parametrize(
+    ("case_id", "sku"),
+    [
+        ("C03", "KB-ERG-001"),
+        ("C05", "KB-LATE-004"),
+        ("C07", "KB-NODEL-005"),
+    ],
+)
+def test_generic_candidate_holds_unacceptable_cart_without_preparation(
+    tmp_path: Path, case_id: str, sku: str
+) -> None:
+    database_path = tmp_path / f"held-{sku}.db"
+    db.reset(database_path, db.EVAL_SEED_NAME)
+    policy = candidate_policy_for_case(case_id)
+    caller = SequenceCaller(
+        [
+            tool_turn("inspect_product", {"sku": sku}, 1),
+            tool_turn("set_cart", {"sku": sku, "quantity": 2}, 2),
+            tool_turn("validate_cart", {}, 3),
+            ModelTurn(message={"role": "assistant", "content": "Hold."}),
+        ]
+    )
+
+    with db.connect(database_path) as connection:
+        outcome = investigate_request(
+            connection,
+            "Use the server-owned constraints.",
+            policy,
+            caller,
+            clock=lambda: 1_800_000_000,
+        )
+        assert connection.execute("SELECT COUNT(*) FROM preparations").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM orders").fetchone()[0] == 0
+
+    assert outcome.status == "held"
+
+
+def test_clarification_stops_before_resolved_policy_can_prepare(tmp_path: Path) -> None:
+    database_path = tmp_path / "clarification.db"
+    db.reset(database_path, db.EVAL_SEED_NAME)
+    unresolved = candidate_policy_for_case("C02")
+    resolved = candidate_policy_for_case("C02", clarified=True)
+
+    with db.connect(database_path) as connection:
+        first = investigate_request(
+            connection,
+            "Buy the requested brand, but the exact SKU is unclear.",
+            unresolved,
+            SequenceCaller(
+                [ModelTurn(message={"role": "assistant", "content": "Which SKU?"})]
+            ),
+            clock=lambda: 1_800_000_000,
+        )
+        assert connection.execute("SELECT COUNT(*) FROM preparations").fetchone()[0] == 0
+        second = investigate_request(
+            connection,
+            "Use ErgoType SKU KB-ERG-001.",
+            resolved,
+            SequenceCaller(success_turns()),
+            clock=lambda: 1_800_000_001,
+        )
+
+    assert first.status == "needs_user"
+    assert second.status == "ready_for_confirmation"
 
 
 def test_exact_sku_agent_reaches_redacted_confirmation_ready_state(

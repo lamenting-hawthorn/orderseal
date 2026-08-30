@@ -358,6 +358,7 @@ def _directbuy_program(runtime: DirectBuyRuntime) -> ToolProgram:
         handlers=handlers,
         completion=complete,
         stopped_reason="model_stopped_before_order_resolution",
+        stopped_status="needs_user",
     )
 
 

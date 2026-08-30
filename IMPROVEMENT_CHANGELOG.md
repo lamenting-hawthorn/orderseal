@@ -100,3 +100,37 @@ or removed experiments remain visible.
 - **Lesson:** approval and fault evidence are evaluation authority; both must be
   bound to the exact assignment and independent event sequence, not inferred
   from a convenient row or agent claim.
+
+## 2026-08-30 — Generic case-policy candidate seam
+
+- **Hypothesis:** the existing seven-tool boundary and transaction spine can
+  support the hard case matrix without case-ID branches if a separate
+  server-owned policy controls allowed carts, landed cost, delivery, terminal
+  behavior, and deterministic fallback selection.
+- **Intervention:** generalized preparation over an exact policy-bound cart,
+  added reusable candidate policies without adding tools, enforced landed-total
+  and lowest-cost selection rules, and taught the existing reconciliation tools
+  to terminate as reconciled after protected confirmation.
+- **Observed:** 65 local tests pass. Deterministic checks now cover clarification
+  before effect, comparison/no-order completion, over-budget/late/missing-evidence
+  holds, an evidenced fallback, and a composite injected fallback that rejects a
+  stale first preparation, obtains a fresh preparation and approval, commits
+  once, loses the acknowledgement, and reconciles the durable order. The
+  independent policy input file is strict-loaded and its SHA-256 is persisted
+  inside the preparation-bound constraints; the construction module has no
+  oracle-expectation dependency. A fresh veto found that lowest-cost selection
+  was checked only before preparation and that fallback did not require evidence
+  about the preferred item. The domain now rechecks selection under the
+  preparation and confirmation transactions, persists the preferred-item
+  catalogue snapshot, requires it before fallback, and rejects stale evidence;
+  exact optional-value type checks also reject booleans and malformed policies.
+- **Evidence:** `tests/test_agent.py` and `tests/test_evaluation.py`; local pytest,
+  Ruff, mypy, and diff-hygiene output. This is deterministic local capability
+  proof, not full model-driven C01-C12 performance.
+- **Decision:** keep the real runner, manifest freeze, baseline parity,
+  preregistration, and scored runs on HOLD. The runner must consume only the
+  independent policy inputs, never oracle expectations, and must mutate the
+  actually prepared item for stale-review cases.
+- **Lesson:** a frozen oracle may judge an action, but it must never become the
+  candidate's source of authority. Input policy and expected output remain
+  separate artifacts.

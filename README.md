@@ -20,12 +20,18 @@ Phase 3's evaluation foundation now includes a separate DirectBuy registry, a
 query-only raw-SQLite oracle, frozen C01-C12 manifests, and a seeded 48-row AB/BA
 assignment ledger. An unscored live feasibility probe made both conditions
 commit once and reconcile a simulated lost acknowledgement; see
-`PHASE3_FEASIBILITY_RECEIPT.json`. The full candidate remains demo-only for the
-case matrix, so preregistration and the 48 scored model runs are intentionally
-blocked. The offline 48-run command is harness-plumbing evidence only; its
-scores are not model-performance results.
+`PHASE3_FEASIBILITY_RECEIPT.json`. The candidate is not yet connected to the
+model-driven case runner. Its generic server-policy path now has deterministic
+coverage for clarification, comparison/no-order, landed-budget, late/missing
+delivery, fallback choice, stale review, prompt-injection data, and
+acknowledgement-loss reconciliation, including the composite fallback path. An
+independent case-policy input manifest is now digest-bound into each generic
+preparation, but it and the fair model-driven runner are not yet reviewed and
+frozen, so preregistration and the 48 scored model runs remain blocked. The
+offline 48-run command is harness-plumbing evidence only; its scores are not
+model-performance results.
 
-52 local tests cover the current implementation. The suite proves a functional server-rendered
+65 local tests cover the current implementation. The suite proves a functional server-rendered
 confirmation, provenance that labels
 the browser operator as unverified rather than asserting human identity, one
 atomic stock/order effect,

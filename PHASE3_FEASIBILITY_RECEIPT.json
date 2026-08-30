@@ -14,16 +14,16 @@
       "prepare_order"
     ],
     "usage": {
-      "completion_tokens": 134,
+      "completion_tokens": 165,
       "prompt_tokens": 2793,
-      "total_tokens": 2927
+      "total_tokens": 2958
     }
   },
   "candidate_sha256": {
-    "app/agent.py": "17100d5a237062f6be1d49c0eedb42c07bd242d9356b6115d369b60d4c0137e9",
-    "app/baseline.py": "3e0dab4a0927f7f5637a788075b462f1a1a06f2c813db8d0e95cafde585b06a9",
+    "app/agent.py": "6ed3445bbde8f11bd491151ac8fc8d90defcb7015c271dd9da2b632b997f690e",
+    "app/baseline.py": "3d7bb215d105be15f1fbdd0f68b9528df7f9490c7a02768a0da8a2ca89e58d37",
     "app/db.py": "9a17ec2f0736c8537b62e32a3fb9f2db7f138044c217c91badb4b50069885999",
-    "app/domain.py": "2aaf0fdb3b63eef61fcb597e54e6e68498a9f4ba915bd8b566c8eb3c0e8c254e",
+    "app/domain.py": "7b9c34674c1dce858e6364a3ce1c3b68e610d433c7ebbee9f45c17f57e1b1486",
     "phase3_feasibility_probe.py": "f254cb0ccaeb8c0799cb56896ceee1816ec97eba4c03fb8fdf2ba313b7483033"
   },
   "directbuy": {
@@ -41,9 +41,9 @@
       "get_order_history"
     ],
     "usage": {
-      "completion_tokens": 177,
+      "completion_tokens": 176,
       "prompt_tokens": 2964,
-      "total_tokens": 3141
+      "total_tokens": 3140
     }
   },
   "dirty_candidate": true,
@@ -53,6 +53,6 @@
   "proof_layer": "unscored_live_provider_local_sqlite",
   "provider_base_url": "https://openrouter.ai/api/v1",
   "schema_version": 1,
-  "source_revision": "08ac657d8f35d43b8e2e410b08d4855cb86d1e3c",
-  "timestamp_utc": "2026-08-30T00:46:15.750749+00:00"
+  "source_revision": "2c64e6e5c2786f6733ce20d4714523685ab8c46b",
+  "timestamp_utc": "2026-08-30T01:09:43.422268+00:00"
 }
