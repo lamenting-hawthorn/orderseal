@@ -41,27 +41,27 @@ from evals.runner import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-PREREGISTRATION_PATH = PROJECT_ROOT / "preregistration-deepseek-v1.json"
+PREREGISTRATION_PATH = PROJECT_ROOT / "preregistration-deepseek-v2.json"
 MODEL_ID = PROVIDER_MODEL_ID
 BASE_URL = PROVIDER_BASE_URL
-PRIOR_PREREGISTRATION_PATH = PROJECT_ROOT / "preregistration.json"
+PRIOR_PREREGISTRATION_PATH = PROJECT_ROOT / "preregistration-deepseek-v1.json"
 PRIOR_EXECUTION_PATH = (
-    PROJECT_ROOT / "artifacts" / "scored-20260830-openai-gpt-5-6-luna"
+    PROJECT_ROOT / "artifacts" / "scored-20260830-deepseek-v4-flash-0731"
 )
 PRIOR_EXECUTION_SEAL_PATH = (
     PROJECT_ROOT
     / "artifacts"
-    / "scored-20260830-openai-gpt-5-6-luna-execution-seal.json"
+    / "scored-20260830-deepseek-v4-flash-0731-execution-seal.json"
 )
 PRIOR_MANIFEST_DIGEST = (
-    "7b29cb5499fc2931cd29ac2149095532abb40f520435f7a89e80c880951f42ab"
+    "18c4a642af73dd38d7cf852f530d9ea6d6ff3d9956a5fd60e78e06ebe2a89808"
 )
-PRIOR_TREE_DIGEST = "6dc780eec2ae0cf82779441ff8880df12fc43e5f4da104e6a4d640994719fd37"
+PRIOR_TREE_DIGEST = "5a539c4ec5e9b68e7e410e2aaeb9454bfbc2fe2ae644145559ac5202f420afdb"
 PRIOR_LINEAGE = {
     "prior_manifest_digest": PRIOR_MANIFEST_DIGEST,
     "prior_execution_tree_digest": PRIOR_TREE_DIGEST,
     "prior_result": "48_provider_errors_without_model_execution",
-    "change_reason": "owner_selected_DeepSeek_and_the_prior_frozen_route_was_incompatible",
+    "change_reason": "pinned_DeepSeek_endpoint_returned_404_and_Baidu_fp8_passed_a_generic_tool_probe",
 }
 
 
@@ -253,6 +253,7 @@ def build_preregistration(
             "catalog_verified_on": "2026-08-30",
             "catalog_source": "https://openrouter.ai/deepseek/deepseek-v4-flash-0731",
             "preflight_required_before_output_creation": True,
+            "preflight_route_probe": "generic non-scored health_check tool call must succeed on the pinned endpoint",
         },
         "design": {
             "assignment_seed": ASSIGNMENT_SEED,

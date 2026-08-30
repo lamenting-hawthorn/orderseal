@@ -183,7 +183,9 @@ def test_fallback_requires_evidence_for_the_preferred_item(tmp_path: Path) -> No
             caller,
             clock=lambda: 1_800_000_000,
         )
-        assert connection.execute("SELECT COUNT(*) FROM preparations").fetchone()[0] == 0
+        assert (
+            connection.execute("SELECT COUNT(*) FROM preparations").fetchone()[0] == 0
+        )
 
     assert outcome.status == "held"
 
@@ -198,7 +200,11 @@ def test_non_order_policy_stops_without_preparation(
     database_path = tmp_path / f"no-order-{case_id}.db"
     db.reset(database_path, db.EVAL_SEED_NAME)
     policy = candidate_policy_for_case(case_id)
-    final_content = "Which currency, pack size, and quantity should I use?" if case_id == "C11" else "No order."
+    final_content = (
+        "Which currency, pack size, and quantity should I use?"
+        if case_id == "C11"
+        else "No order."
+    )
     turns = [ModelTurn(message={"role": "assistant", "content": final_content})]
     if case_id == "C10":
         turns.insert(0, tool_turn("inspect_product", {"sku": "KB-ERG-001"}, 1))
@@ -212,7 +218,9 @@ def test_non_order_policy_stops_without_preparation(
             caller,
             clock=lambda: 1_800_000_000,
         )
-        assert connection.execute("SELECT COUNT(*) FROM preparations").fetchone()[0] == 0
+        assert (
+            connection.execute("SELECT COUNT(*) FROM preparations").fetchone()[0] == 0
+        )
 
     assert outcome.status == expected_status
 
@@ -248,7 +256,9 @@ def test_generic_candidate_holds_unacceptable_cart_without_preparation(
             caller,
             clock=lambda: 1_800_000_000,
         )
-        assert connection.execute("SELECT COUNT(*) FROM preparations").fetchone()[0] == 0
+        assert (
+            connection.execute("SELECT COUNT(*) FROM preparations").fetchone()[0] == 0
+        )
         assert connection.execute("SELECT COUNT(*) FROM orders").fetchone()[0] == 0
 
     assert outcome.status == "held"
@@ -270,7 +280,9 @@ def test_clarification_stops_before_resolved_policy_can_prepare(tmp_path: Path) 
             ),
             clock=lambda: 1_800_000_000,
         )
-        assert connection.execute("SELECT COUNT(*) FROM preparations").fetchone()[0] == 0
+        assert (
+            connection.execute("SELECT COUNT(*) FROM preparations").fetchone()[0] == 0
+        )
         second = investigate_request(
             connection,
             "Use ErgoType SKU KB-ERG-001.",
@@ -582,13 +594,13 @@ def test_openrouter_caller_pins_upstream_provider_without_fallback(
         base_url="https://openrouter.invalid/v1",
         model="deepseek/deepseek-v4-flash-0731",
         api_key="test-key-not-a-secret",
-        provider_slug="deepseek",
+        provider_slug="baidu/fp8",
     )
 
     caller([], TOOL_SCHEMAS, 1)
 
     assert captured["payload"]["provider"] == {
-        "order": ["deepseek"],
+        "order": ["baidu/fp8"],
         "allow_fallbacks": False,
         "require_parameters": True,
     }
@@ -602,15 +614,13 @@ def test_openrouter_preflight_accepts_only_compatible_frozen_route(
     responses = {
         "/key": {"data": {}},
         "/model/deepseek/deepseek-v4-flash-0731": {
-            "data": {
-                "canonical_slug": "deepseek/deepseek-v4-flash-20260731"
-            }
+            "data": {"canonical_slug": "deepseek/deepseek-v4-flash-20260731"}
         },
         "/models/deepseek/deepseek-v4-flash-0731/endpoints": {
             "data": {
                 "endpoints": [
                     {
-                        "tag": "deepseek",
+                        "tag": "baidu/fp8",
                         "supported_parameters": [
                             "temperature",
                             "tool_choice",
@@ -619,6 +629,27 @@ def test_openrouter_preflight_accepts_only_compatible_frozen_route(
                     }
                 ]
             }
+        },
+        "/chat/completions": {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": "health-1",
+                                "type": "function",
+                                "function": {
+                                    "name": "health_check",
+                                    "arguments": "{}",
+                                },
+                            }
+                        ],
+                    }
+                }
+            ],
+            "model": "deepseek/deepseek-v4-flash-0731",
+            "usage": {"total_tokens": 1},
         },
     }
 
@@ -644,7 +675,7 @@ def test_openrouter_preflight_accepts_only_compatible_frozen_route(
         base_url="https://openrouter.invalid/v1",
         model="deepseek/deepseek-v4-flash-0731",
         api_key="test-key-not-a-secret",
-        provider_slug="deepseek",
+        provider_slug="baidu/fp8",
     )
 
     receipt = caller.preflight({"temperature", "tool_choice", "tools"})
@@ -653,10 +684,68 @@ def test_openrouter_preflight_accepts_only_compatible_frozen_route(
         "auth": "ok",
         "model_requested": "deepseek/deepseek-v4-flash-0731",
         "canonical_model": "deepseek/deepseek-v4-flash-20260731",
-        "provider_tag": "deepseek",
+        "provider_tag": "baidu/fp8",
         "required_parameters": ["temperature", "tool_choice", "tools"],
         "compatible_endpoint_count": 1,
+        "route_probe": "generic_tool_call_ok",
+        "route_probe_model": "deepseek/deepseek-v4-flash-0731",
     }
+
+
+def test_openrouter_preflight_rejects_metadata_only_false_positive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        def __init__(self, body: dict[str, object]) -> None:
+            self.body = json.dumps(body).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit: int) -> bytes:
+            return self.body
+
+    def fake_urlopen(request, **_kwargs):
+        if request.full_url.endswith("/chat/completions"):
+            raise agent_module.urllib.error.HTTPError(
+                request.full_url, 404, "not found", {}, None
+            )
+        if "/endpoints" in request.full_url:
+            body = {
+                "data": {
+                    "endpoints": [
+                        {
+                            "tag": "baidu/fp8",
+                            "supported_parameters": [
+                                "temperature",
+                                "tool_choice",
+                                "tools",
+                            ],
+                        }
+                    ]
+                }
+            }
+        elif "/model/" in request.full_url:
+            body = {
+                "data": {"canonical_slug": "deepseek/deepseek-v4-flash-20260731"}
+            }
+        else:
+            body = {"data": {}}
+        return FakeResponse(body)
+
+    monkeypatch.setattr(agent_module.urllib.request, "urlopen", fake_urlopen)
+    caller = OpenRouterCaller(
+        base_url="https://openrouter.invalid/v1",
+        model="deepseek/deepseek-v4-flash-0731",
+        api_key="test-key-not-a-secret",
+        provider_slug="baidu/fp8",
+    )
+
+    with pytest.raises(ProviderError, match="provider_http_404"):
+        caller.preflight({"temperature", "tool_choice", "tools"})
 
 
 def test_controller_rejects_multiple_tool_calls_from_one_response(

@@ -37,6 +37,18 @@ PROVIDER_TIMEOUT_SECONDS = 30
 RUN_TIMEOUT_SECONDS = 120
 TOOL_TIMEOUT_SECONDS = 3
 OPENROUTER_REQUIRED_PARAMETERS = ("temperature", "tool_choice", "tools")
+OPENROUTER_HEALTH_CHECK_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "health_check",
+        "description": "Return a diagnostic health marker",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    },
+}
 
 SYSTEM_PROMPT = f"""You are OrderSeal's investigation controller.
 The server-owned constraints are authoritative: {canonical_json(DEMO_CONSTRAINTS)}
@@ -48,12 +60,9 @@ Stop after prepare_order reports ready_for_confirmation."""
 
 class ProviderError(Exception):
     def __init__(self, code: str) -> None:
-        if (
-            not 1 <= len(code) <= 80
-            or any(
-                not (character.islower() or character.isdigit() or character == "_")
-                for character in code
-            )
+        if not 1 <= len(code) <= 80 or any(
+            not (character.islower() or character.isdigit() or character == "_")
+            for character in code
         ):
             raise ValueError("provider error code must be a safe identifier")
         self.code = code
@@ -130,7 +139,9 @@ class CandidatePolicy:
             raise ValueError("invalid selection rule")
         if self.source_digest is not None and (
             len(self.source_digest) != 64
-            or any(character not in "0123456789abcdef" for character in self.source_digest)
+            or any(
+                character not in "0123456789abcdef" for character in self.source_digest
+            )
         ):
             raise ValueError("invalid policy source digest")
         for value in (self.quantity, self.budget_paise, self.delivery_days_max):
@@ -226,9 +237,7 @@ class ToolContext:
 
 
 ToolHandler = Callable[[ToolContext, BaseModel], dict[str, object]]
-ToolCompletion = Callable[
-    [ToolContext, dict[str, object]], tuple[str, str] | None
-]
+ToolCompletion = Callable[[ToolContext, dict[str, object]], tuple[str, str] | None]
 
 
 @dataclass(frozen=True)
@@ -701,7 +710,10 @@ def run_tool_program(
                 if (
                     not isinstance(content, str)
                     or content.count("?") != 1
-                    or any(ord(character) < 32 and character not in "\n\t" for character in content)
+                    or any(
+                        ord(character) < 32 and character not in "\n\t"
+                        for character in content
+                    )
                 ):
                     return _held(
                         "clarification_not_requested", state, trajectory, model, usage
@@ -725,7 +737,9 @@ def run_tool_program(
         if active_budget.tool_calls + len(tool_calls) > MAX_TOOL_CALLS:
             return _held("tool_call_limit", state, trajectory, model, usage)
         if len(tool_calls) != 1:
-            return _held("parallel_tool_calls_rejected", state, trajectory, model, usage)
+            return _held(
+                "parallel_tool_calls_rejected", state, trajectory, model, usage
+            )
         active_budget.tool_calls += len(tool_calls)
         messages.append(
             {
@@ -880,7 +894,9 @@ def investigate_request(
         {"role": "system", "content": candidate_system_prompt(policy)},
         {"role": "user", "content": brief},
     ]
-    return run_tool_program(context, messages, caller, candidate_program(policy), monotonic)
+    return run_tool_program(
+        context, messages, caller, candidate_program(policy), monotonic
+    )
 
 
 def investigate_exact_sku(
@@ -996,7 +1012,9 @@ class OpenRouterCaller:
             PROVIDER_TIMEOUT_SECONDS,
         )
         endpoint_data = endpoint_response.get("data")
-        endpoints = endpoint_data.get("endpoints") if isinstance(endpoint_data, dict) else None
+        endpoints = (
+            endpoint_data.get("endpoints") if isinstance(endpoint_data, dict) else None
+        )
         if not isinstance(endpoints, list):
             raise ProviderError("provider_endpoint_metadata_invalid")
         compatible: list[dict[str, Any]] = []
@@ -1013,6 +1031,21 @@ class OpenRouterCaller:
                 compatible.append(endpoint)
         if not compatible:
             raise ProviderError("provider_route_incompatible")
+        probe = self(
+            [{"role": "user", "content": "Call the health_check tool once."}],
+            [OPENROUTER_HEALTH_CHECK_TOOL],
+            PROVIDER_TIMEOUT_SECONDS,
+        )
+        tool_calls = probe.message.get("tool_calls")
+        if (
+            probe.model not in {self._model, canonical_model}
+            or not isinstance(tool_calls, list)
+            or len(tool_calls) != 1
+            or not isinstance(tool_calls[0], dict)
+            or not isinstance(tool_calls[0].get("function"), dict)
+            or tool_calls[0]["function"].get("name") != "health_check"
+        ):
+            raise ProviderError("provider_route_probe_failed")
         return {
             "auth": "ok",
             "model_requested": self._model,
@@ -1020,6 +1053,8 @@ class OpenRouterCaller:
             "provider_tag": self._provider_slug,
             "required_parameters": sorted(required_parameters),
             "compatible_endpoint_count": len(compatible),
+            "route_probe": "generic_tool_call_ok",
+            "route_probe_model": probe.model,
         }
 
     def __call__(

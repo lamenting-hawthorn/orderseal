@@ -178,3 +178,13 @@ or removed experiments remain visible.
   selectively retried.
 - **Lesson:** environment intent is not runtime evidence; freeze and preflight the
   exact model alias, canonical identity, endpoint tag, and request parameters.
+
+### Experiment 9 — Replace the unavailable native DeepSeek route
+
+- **Observed:** the pinned `deepseek` endpoint returned HTTP 404 for all 48 frozen
+  rows even though metadata listed it; the same model produced a valid generic
+  tool call through OpenRouter auto-routing, which selected Baidu.
+- **Changed:** pin `baidu/fp8` without fallback and require a generic non-scored
+  tool-call route probe before any evaluation output is created.
+- **Boundary:** the failed 48-row execution remains sealed and was not retried;
+  a replacement scored execution requires a new frozen manifest and authorization.

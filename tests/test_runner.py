@@ -261,6 +261,8 @@ def test_openrouter_execution_requires_preflight_before_output(
         {"canonical_model": "deepseek/deepseek-v4-flash-0731"},
         {"compatible_endpoint_count": 0},
         {"compatible_endpoint_count": True},
+        {"route_probe": "failed"},
+        {"route_probe_model": "wrong/model"},
         {"raw_payload": "must-not-be-persisted"},
     ],
 )
@@ -272,9 +274,11 @@ def test_openrouter_execution_rejects_forged_preflight(
         "auth": "ok",
         "model_requested": "deepseek/deepseek-v4-flash-0731",
         "canonical_model": "deepseek/deepseek-v4-flash-20260731",
-        "provider_tag": "deepseek",
+        "provider_tag": "baidu/fp8",
         "required_parameters": ["temperature", "tool_choice", "tools"],
         "compatible_endpoint_count": 1,
+        "route_probe": "generic_tool_call_ok",
+        "route_probe_model": "deepseek/deepseek-v4-flash-0731",
     }
     receipt.update(change)
 
@@ -687,7 +691,7 @@ def test_preregistration_is_self_bound_and_withholds_scored_execution() -> None:
     assert manifest["provider_contract"]["canonical_model"] == (
         "deepseek/deepseek-v4-flash-20260731"
     )
-    assert manifest["provider_contract"]["upstream_provider_order"] == ["deepseek"]
+    assert manifest["provider_contract"]["upstream_provider_order"] == ["baidu/fp8"]
     assert manifest["provider_contract"]["required_parameters"] == [
         "temperature",
         "tool_choice",
@@ -709,7 +713,7 @@ def test_runtime_provider_contract_cannot_drift_via_environment(
     assert settings.model == MODEL_ID
     assert settings.base_url == "https://openrouter.ai/api/v1"
     assert settings.model == "deepseek/deepseek-v4-flash-0731"
-    assert settings.provider_order == ("deepseek",)
+    assert settings.provider_order == ("baidu/fp8",)
     assert settings.accepted_models == (
         "deepseek/deepseek-v4-flash-0731",
         "deepseek/deepseek-v4-flash-20260731",
@@ -723,6 +727,7 @@ def test_runtime_provider_contract_cannot_drift_via_environment(
     [
         ("ORDERSEAL_MODEL", "wrong/model"),
         ("ORDERSEAL_BASE_URL", "https://different.invalid/v1"),
+        ("ORDERSEAL_UPSTREAM_PROVIDER", "deepseek"),
     ],
 )
 def test_runner_main_rejects_environment_drift_before_output(
@@ -735,6 +740,7 @@ def test_runner_main_rejects_environment_drift_before_output(
     monkeypatch.setenv("ORDERSEAL_API_KEY", "not-a-real-key")
     monkeypatch.setenv("ORDERSEAL_MODEL", MODEL_ID)
     monkeypatch.setenv("ORDERSEAL_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("ORDERSEAL_UPSTREAM_PROVIDER", "baidu/fp8")
     monkeypatch.setenv(name, value)
     monkeypatch.setattr(
         sys, "argv", ["evals.runner", "--provider-eval", "--output", str(output)]

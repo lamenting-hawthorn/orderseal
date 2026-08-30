@@ -175,6 +175,8 @@ def _validated_preflight_receipt(
         "provider_tag",
         "required_parameters",
         "compatible_endpoint_count",
+        "route_probe",
+        "route_probe_model",
     }
     compatible_endpoint_count = (
         receipt.get("compatible_endpoint_count") if receipt is not None else None
@@ -190,6 +192,8 @@ def _validated_preflight_receipt(
         or not isinstance(compatible_endpoint_count, int)
         or isinstance(compatible_endpoint_count, bool)
         or compatible_endpoint_count <= 0
+        or receipt.get("route_probe") != "generic_tool_call_ok"
+        or receipt.get("route_probe_model") not in settings.accepted_models
     ):
         raise ValueError("matching OpenRouter preflight is required")
     return {key: receipt[key] for key in sorted(required_keys)}
@@ -1214,10 +1218,15 @@ def main() -> None:
     arguments = parser.parse_args()
     configured_base_url = os.environ.get("ORDERSEAL_BASE_URL")
     configured_model = os.environ.get("ORDERSEAL_MODEL")
+    configured_provider = os.environ.get("ORDERSEAL_UPSTREAM_PROVIDER")
     if configured_base_url not in {None, PROVIDER_BASE_URL}:
         raise ValueError("ORDERSEAL_BASE_URL differs from the frozen provider URL")
     if configured_model not in {None, PROVIDER_MODEL_ID}:
         raise ValueError("ORDERSEAL_MODEL differs from the frozen provider model")
+    if configured_provider not in {None, UPSTREAM_PROVIDER}:
+        raise ValueError(
+            "ORDERSEAL_UPSTREAM_PROVIDER differs from the frozen provider route"
+        )
     api_key = os.environ["ORDERSEAL_API_KEY"]
     settings = frozen_provider_settings()
     caller = OpenRouterCaller(

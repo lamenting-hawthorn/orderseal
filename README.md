@@ -53,17 +53,18 @@ the cookie `Secure` attribute so the documented local path works. Set
 `ORDERSEAL_ORIGIN` to the exact HTTPS origin in an HTTPS environment; this also
 enables secure cookies. The health endpoint is `GET /health`.
 
-The browser probes use a git-ignored `.env` containing
-`ORDERSEAL_BASE_URL`, `ORDERSEAL_MODEL`, and `ORDERSEAL_API_KEY`. Never commit
-or paste the key into logs, issues, or chat.
+The browser probes use a git-ignored `.env` containing `ORDERSEAL_BASE_URL`,
+`ORDERSEAL_MODEL`, `ORDERSEAL_UPSTREAM_PROVIDER`, and `ORDERSEAL_API_KEY`.
+Never commit or paste the key into logs, issues, or chat.
 
 The scored runner reads `ORDERSEAL_API_KEY`; any supplied base URL and model must
 exactly match the source freeze. The current OpenRouter contract is
 `deepseek/deepseek-v4-flash-0731`, canonical model
-`deepseek/deepseek-v4-flash-20260731`, upstream provider `deepseek`, no provider
-fallback, and temperature zero. An authenticated metadata preflight must pass
-before any output directory is created. Do not invoke `python -m evals.runner`
-until `preregistration-deepseek-v1.json` has been reviewed and the project owner
+`deepseek/deepseek-v4-flash-20260731`, upstream endpoint `baidu/fp8`, no provider
+fallback, and temperature zero. An authenticated metadata preflight and generic
+tool-call route probe must pass before any output directory is created. Do not
+invoke `python -m evals.runner` until `preregistration-deepseek-v2.json` has been
+reviewed and the project owner
 separately authorizes the full 48-row run.
 
 `evals/assignments.jsonl` is the sole denominator ledger. Do not edit it after

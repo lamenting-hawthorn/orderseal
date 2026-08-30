@@ -14,7 +14,7 @@ PROVIDER_NAME = "openrouter"
 PROVIDER_BASE_URL = "https://openrouter.ai/api/v1"
 PROVIDER_MODEL_ID = "deepseek/deepseek-v4-flash-0731"
 PROVIDER_CANONICAL_MODEL_ID = "deepseek/deepseek-v4-flash-20260731"
-UPSTREAM_PROVIDER = "deepseek"
+UPSTREAM_PROVIDER = "baidu/fp8"
 PROVIDER_ALLOW_FALLBACKS = False
 PROVIDER_REQUIRE_PARAMETERS = True
 CONDITIONS = ("directbuy", "orderseal")
@@ -62,7 +62,14 @@ def load_cases(path: Path = CASES_PATH) -> list[dict[str, Any]]:
             raise ValueError(f"case line {line_number} must be an object")
         if set(row) != CASE_KEYS:
             raise ValueError(f"case line {line_number} has an invalid schema")
-        for key in ("case_id", "request", "stratum", "mutation_profile", "fault_profile", "adversary"):
+        for key in (
+            "case_id",
+            "request",
+            "stratum",
+            "mutation_profile",
+            "fault_profile",
+            "adversary",
+        ):
             if not isinstance(row[key], str) or not 1 <= len(row[key]) <= 2_000:
                 raise ValueError(f"case line {line_number} has invalid {key}")
         clarification = row["clarification_script"]
@@ -75,7 +82,9 @@ def load_cases(path: Path = CASES_PATH) -> list[dict[str, Any]]:
             or type(clarification["maximum_questions"]) is not int
             or clarification["maximum_questions"] != 1
         ):
-            raise ValueError(f"case line {line_number} has invalid clarification_script")
+            raise ValueError(
+                f"case line {line_number} has invalid clarification_script"
+            )
         rows.append(row)
     case_ids = tuple(row.get("case_id") for row in rows)
     if case_ids != CASE_IDS:
@@ -128,9 +137,7 @@ def sha256_file(path: Path) -> str:
 
 def build_assignments(seed: int = ASSIGNMENT_SEED) -> list[dict[str, Any]]:
     randomizer = random.Random(seed)
-    first_condition = {
-        case_id: randomizer.choice(CONDITIONS) for case_id in CASE_IDS
-    }
+    first_condition = {case_id: randomizer.choice(CONDITIONS) for case_id in CASE_IDS}
     blocks: list[tuple[str, int, tuple[str, str]]] = []
     for case_id in CASE_IDS:
         first = first_condition[case_id]
