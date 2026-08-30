@@ -57,16 +57,17 @@ The browser probes use a git-ignored `.env` containing
 `ORDERSEAL_BASE_URL`, `ORDERSEAL_MODEL`, and `ORDERSEAL_API_KEY`. Never commit
 or paste the key into logs, issues, or chat.
 
-The scored runner reads only `OPENAI_API_KEY`; endpoint, model, and routing are
-code-frozen rather than environment-selectable. The OpenRouter contract is
-`https://openrouter.ai/api/v1`, model
-`openai/gpt-5.6-luna`, upstream provider `openai`, no provider fallback, and
-temperature zero. Do not invoke `python -m evals.runner` until the committed
-`preregistration.json` has been reviewed and the project owner separately
-authorizes the full 48-row run.
+The scored runner reads `ORDERSEAL_API_KEY`; any supplied base URL and model must
+exactly match the source freeze. The current OpenRouter contract is
+`deepseek/deepseek-v4-flash-0731`, canonical model
+`deepseek/deepseek-v4-flash-20260731`, upstream provider `deepseek`, no provider
+fallback, and temperature zero. An authenticated metadata preflight must pass
+before any output directory is created. Do not invoke `python -m evals.runner`
+until `preregistration-deepseek-v1.json` has been reviewed and the project owner
+separately authorizes the full 48-row run.
 
 `evals/assignments.jsonl` is the sole denominator ledger. Do not edit it after
-the immutable `preregistration.json` freeze. Every scored
+the immutable preregistration freeze. Every scored
 timeout, provider error, crash, malformed output, and missing artifact will stay
 in the denominator; selective reruns are prohibited.
 

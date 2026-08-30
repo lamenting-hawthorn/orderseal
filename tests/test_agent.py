@@ -557,7 +557,7 @@ def test_openrouter_caller_pins_upstream_provider_without_fallback(
     response_body = json.dumps(
         {
             "choices": [{"message": {"role": "assistant", "content": "done"}}],
-            "model": "openai/gpt-5.6-luna",
+            "model": "deepseek/deepseek-v4-flash-20260731",
             "usage": {"total_tokens": 1},
         }
     ).encode()
@@ -580,15 +580,99 @@ def test_openrouter_caller_pins_upstream_provider_without_fallback(
     monkeypatch.setattr(agent_module.urllib.request, "urlopen", fake_urlopen)
     caller = OpenRouterCaller(
         base_url="https://openrouter.invalid/v1",
-        model="openai/gpt-5.6-luna",
+        model="deepseek/deepseek-v4-flash-0731",
         api_key="test-key-not-a-secret",
-        provider_slug="openai",
+        provider_slug="deepseek",
     )
 
     caller([], TOOL_SCHEMAS, 1)
 
     assert captured["payload"]["provider"] == {
-        "order": ["openai"],
+        "order": ["deepseek"],
         "allow_fallbacks": False,
         "require_parameters": True,
     }
+    assert captured["payload"]["temperature"] == 0
+    assert "parallel_tool_calls" not in captured["payload"]
+
+
+def test_openrouter_preflight_accepts_only_compatible_frozen_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        "/key": {"data": {}},
+        "/model/deepseek/deepseek-v4-flash-0731": {
+            "data": {
+                "canonical_slug": "deepseek/deepseek-v4-flash-20260731"
+            }
+        },
+        "/models/deepseek/deepseek-v4-flash-0731/endpoints": {
+            "data": {
+                "endpoints": [
+                    {
+                        "tag": "deepseek",
+                        "supported_parameters": [
+                            "temperature",
+                            "tool_choice",
+                            "tools",
+                        ],
+                    }
+                ]
+            }
+        },
+    }
+
+    class FakeResponse:
+        def __init__(self, body: dict[str, object]) -> None:
+            self.body = json.dumps(body).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit: int) -> bytes:
+            return self.body
+
+    def fake_urlopen(request, **_kwargs):
+        path = request.full_url.removeprefix("https://openrouter.invalid/v1")
+        return FakeResponse(responses[path])
+
+    monkeypatch.setattr(agent_module.urllib.request, "urlopen", fake_urlopen)
+    caller = OpenRouterCaller(
+        base_url="https://openrouter.invalid/v1",
+        model="deepseek/deepseek-v4-flash-0731",
+        api_key="test-key-not-a-secret",
+        provider_slug="deepseek",
+    )
+
+    receipt = caller.preflight({"temperature", "tool_choice", "tools"})
+
+    assert receipt == {
+        "auth": "ok",
+        "model_requested": "deepseek/deepseek-v4-flash-0731",
+        "canonical_model": "deepseek/deepseek-v4-flash-20260731",
+        "provider_tag": "deepseek",
+        "required_parameters": ["temperature", "tool_choice", "tools"],
+        "compatible_endpoint_count": 1,
+    }
+
+
+def test_controller_rejects_multiple_tool_calls_from_one_response(
+    agent_database: Path,
+) -> None:
+    first = tool_turn("inspect_product", {"sku": "KB-ERG-001"}, 1).message[
+        "tool_calls"
+    ][0]
+    second = tool_turn("set_cart", {"sku": "KB-ERG-001", "quantity": 2}, 2).message[
+        "tool_calls"
+    ][0]
+    caller = SequenceCaller(
+        [ModelTurn(message={"role": "assistant", "tool_calls": [first, second]})]
+    )
+
+    outcome = run_agent(agent_database, caller)
+
+    assert outcome.status == "held"
+    assert outcome.reason == "parallel_tool_calls_rejected"

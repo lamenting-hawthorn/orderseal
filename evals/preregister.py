@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from app.agent import TOOL_SCHEMAS, candidate_system_prompt
+from app.agent import (
+    OPENROUTER_REQUIRED_PARAMETERS,
+    TOOL_SCHEMAS,
+    candidate_system_prompt,
+)
 from app.baseline import DIRECTBUY_TOOL_SCHEMAS, directbuy_system_prompt
 from app.domain import canonical_json, digest
 from evals.policy import POLICIES_PATH, candidate_policy_for_case
@@ -14,6 +19,7 @@ from evals.protocol import (
     ASSIGNMENT_SEED,
     PROVIDER_ALLOW_FALLBACKS,
     PROVIDER_BASE_URL,
+    PROVIDER_CANONICAL_MODEL_ID,
     PROVIDER_MODEL_ID,
     PROVIDER_NAME,
     PROVIDER_REQUIRE_PARAMETERS,
@@ -35,9 +41,28 @@ from evals.runner import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-PREREGISTRATION_PATH = PROJECT_ROOT / "preregistration.json"
+PREREGISTRATION_PATH = PROJECT_ROOT / "preregistration-deepseek-v1.json"
 MODEL_ID = PROVIDER_MODEL_ID
 BASE_URL = PROVIDER_BASE_URL
+PRIOR_PREREGISTRATION_PATH = PROJECT_ROOT / "preregistration.json"
+PRIOR_EXECUTION_PATH = (
+    PROJECT_ROOT / "artifacts" / "scored-20260830-openai-gpt-5-6-luna"
+)
+PRIOR_EXECUTION_SEAL_PATH = (
+    PROJECT_ROOT
+    / "artifacts"
+    / "scored-20260830-openai-gpt-5-6-luna-execution-seal.json"
+)
+PRIOR_MANIFEST_DIGEST = (
+    "7b29cb5499fc2931cd29ac2149095532abb40f520435f7a89e80c880951f42ab"
+)
+PRIOR_TREE_DIGEST = "6dc780eec2ae0cf82779441ff8880df12fc43e5f4da104e6a4d640994719fd37"
+PRIOR_LINEAGE = {
+    "prior_manifest_digest": PRIOR_MANIFEST_DIGEST,
+    "prior_execution_tree_digest": PRIOR_TREE_DIGEST,
+    "prior_result": "48_provider_errors_without_model_execution",
+    "change_reason": "owner_selected_DeepSeek_and_the_prior_frozen_route_was_incompatible",
+}
 
 
 def _git(*arguments: str) -> str:
@@ -49,6 +74,78 @@ def _git(*arguments: str) -> str:
         text=True,
     )
     return result.stdout.strip()
+
+
+def _read_object(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text())
+    if not isinstance(value, dict):
+        raise ValueError(f"expected JSON object: {path}")
+    return value
+
+
+def _verify_prior_lineage(
+    preregistration_path: Path = PRIOR_PREREGISTRATION_PATH,
+    execution_path: Path = PRIOR_EXECUTION_PATH,
+    seal_path: Path = PRIOR_EXECUTION_SEAL_PATH,
+) -> dict[str, str]:
+    prior = _read_object(preregistration_path)
+    embedded_digest = prior.pop("manifest_digest", None)
+    if embedded_digest != PRIOR_MANIFEST_DIGEST or embedded_digest != digest(
+        "orderseal-preregistration-v1", prior
+    ):
+        raise ValueError("prior preregistration integrity check failed")
+
+    seal = _read_object(seal_path)
+    if (
+        seal.get("execution_tree_digest") != PRIOR_TREE_DIGEST
+        or digest("orderseal-execution-tree-v1", seal.get("files")) != PRIOR_TREE_DIGEST
+        or seal.get("preregistration_manifest_digest") != PRIOR_MANIFEST_DIGEST
+        or seal.get("assignment_count") != 48
+        or seal.get("denominator_count") != 48
+        or seal.get("file_count") != 243
+        or not isinstance(seal.get("files"), list)
+    ):
+        raise ValueError("prior execution seal contract check failed")
+    expected = {
+        row["path"]: row["sha256"]
+        for row in seal["files"]
+        if isinstance(row, dict)
+        and isinstance(row.get("path"), str)
+        and isinstance(row.get("sha256"), str)
+    }
+    actual_paths = [path for path in execution_path.rglob("*") if path.is_file()]
+    if len(expected) != 243 or len(actual_paths) != 243:
+        raise ValueError("prior execution inventory check failed")
+    actual = {
+        str(path.relative_to(execution_path)): sha256_file(path)
+        for path in actual_paths
+    }
+    if actual != expected:
+        raise ValueError("prior execution artifact integrity check failed")
+
+    summary = _read_object(execution_path / "summary.json")
+    if any(
+        summary.get(key) != value
+        for key, value in {
+            "assignment_count": 48,
+            "denominator_count": 48,
+            "completed_count": 0,
+            "failed_count": 48,
+        }.items()
+    ):
+        raise ValueError("prior execution summary check failed")
+    ledger = [
+        json.loads(line)
+        for line in (execution_path / "ledger.jsonl").read_text().splitlines()
+    ]
+    if len(ledger) != 48 or any(
+        row.get("run_status") != "failed"
+        or row.get("error_classification") != "provider_error"
+        or row.get("denominator_included") is not True
+        for row in ledger
+    ):
+        raise ValueError("prior execution ledger check failed")
+    return dict(PRIOR_LINEAGE)
 
 
 def build_preregistration(
@@ -66,6 +163,7 @@ def build_preregistration(
         MODEL_ID,
         BASE_URL,
         provider_order=(UPSTREAM_PROVIDER,),
+        accepted_models=(MODEL_ID, PROVIDER_CANONICAL_MODEL_ID),
         allow_fallbacks=PROVIDER_ALLOW_FALLBACKS,
         require_parameters=PROVIDER_REQUIRE_PARAMETERS,
     )
@@ -102,6 +200,7 @@ def build_preregistration(
     body: dict[str, Any] = {
         "schema": "orderseal-preregistration-v1",
         "status": "frozen_execution_not_authorized",
+        "lineage": dict(PRIOR_LINEAGE),
         "frozen_at": frozen_at,
         "frozen_by": frozen_by,
         "source_revision": source_revision,
@@ -142,13 +241,18 @@ def build_preregistration(
             "router": "OpenRouter",
             "base_url": BASE_URL,
             "requested_model": MODEL_ID,
-            "returned_model_rule": "every response must report exactly the requested model ID",
+            "canonical_model": PROVIDER_CANONICAL_MODEL_ID,
+            "accepted_returned_models": [MODEL_ID, PROVIDER_CANONICAL_MODEL_ID],
+            "returned_model_rule": "every response must report the requested alias or its frozen canonical model ID",
             "temperature": 0,
+            "required_parameters": list(OPENROUTER_REQUIRED_PARAMETERS),
+            "parallel_tool_calls": "request parameter omitted; multiple tool calls fail closed in the local controller",
             "upstream_provider_order": [UPSTREAM_PROVIDER],
             "allow_fallbacks": PROVIDER_ALLOW_FALLBACKS,
             "require_parameters": PROVIDER_REQUIRE_PARAMETERS,
             "catalog_verified_on": "2026-08-30",
-            "catalog_source": "https://openrouter.ai/openai/gpt-5.6-luna-20260709",
+            "catalog_source": "https://openrouter.ai/deepseek/deepseek-v4-flash-0731",
+            "preflight_required_before_output_creation": True,
         },
         "design": {
             "assignment_seed": ASSIGNMENT_SEED,
@@ -197,6 +301,7 @@ def build_preregistration(
                 "provider error",
                 "unexpected exception",
                 "malformed output",
+                "multiple tool calls in one model response",
                 "missing model identity",
                 "missing artifact",
             ],
@@ -257,6 +362,7 @@ def build_preregistration(
 def freeze_preregistration(path: Path = PREREGISTRATION_PATH) -> dict[str, Any]:
     if _git("status", "--porcelain", "--untracked-files=all"):
         raise ValueError("preregistration requires a clean source tree")
+    _verify_prior_lineage()
     revision = _git("rev-parse", "HEAD")
     frozen_by = _git("config", "user.name") or "repository_owner"
     frozen_at = datetime.now(UTC).replace(microsecond=0).isoformat()

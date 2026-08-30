@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import inspect
+import hashlib
+import json
+import shutil
 import sqlite3
+import sys
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -21,13 +25,22 @@ from app.agent import (
 from app.baseline import run_direct_buy
 from app.domain import record_evaluation_approval
 from evals.policy import candidate_policy_for_case
-from evals.preregister import MODEL_ID, build_preregistration
+from evals.preregister import (
+    MODEL_ID,
+    PRIOR_EXECUTION_PATH,
+    PRIOR_EXECUTION_SEAL_PATH,
+    PRIOR_PREREGISTRATION_PATH,
+    _verify_prior_lineage,
+    build_preregistration,
+)
 from evals.protocol import build_assignments, load_cases
 from evals.runner import (
     RunnerSettings,
     _run_assignment,
     _shared_parameters,
+    execute_provider_evaluation,
     frozen_provider_settings,
+    main as runner_main,
 )
 
 
@@ -170,11 +183,13 @@ def test_oracle_blind_paired_assignments_use_fresh_databases(tmp_path: Path) -> 
     for assignment in assignments:
         database_path = output / str(assignment["run_id"]) / "state.sqlite3"
         with sqlite3.connect(database_path) as connection:
-            assert connection.execute(
-                "SELECT COUNT(*) FROM orders"
-            ).fetchone()[0] + connection.execute(
-                "SELECT COUNT(*) FROM directbuy_orders"
-            ).fetchone()[0] == 1
+            assert (
+                connection.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
+                + connection.execute(
+                    "SELECT COUNT(*) FROM directbuy_orders"
+                ).fetchone()[0]
+                == 1
+            )
 
 
 def test_provider_failure_is_not_retried_or_removed_from_denominator(
@@ -218,7 +233,108 @@ def test_provider_failure_is_not_retried_or_removed_from_denominator(
     assert receipt["error_classification"] == "provider_error"
     assert receipt["denominator_included"] is True
     assert receipt["structured_final_claim"] is None
-    assert (output / str(assignment["run_id"]) / "receipt.json").exists()
+    run_path = output / str(assignment["run_id"])
+    assert (run_path / "receipt.json").exists()
+    assert "synthetic_provider_failure" in (run_path / "trajectory.jsonl").read_text()
+
+
+def test_openrouter_execution_requires_preflight_before_output(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "must-not-exist"
+
+    with pytest.raises(ValueError, match="preflight"):
+        execute_provider_evaluation(
+            output,
+            lambda _assignment: SequenceCaller([]),
+            frozen_provider_settings(),
+            evaluation_mode=True,
+        )
+
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"auth": "failed"},
+        {"canonical_model": "deepseek/deepseek-v4-flash-0731"},
+        {"compatible_endpoint_count": 0},
+        {"compatible_endpoint_count": True},
+        {"raw_payload": "must-not-be-persisted"},
+    ],
+)
+def test_openrouter_execution_rejects_forged_preflight(
+    tmp_path: Path, change: dict[str, object]
+) -> None:
+    output = tmp_path / "must-not-exist"
+    receipt: dict[str, object] = {
+        "auth": "ok",
+        "model_requested": "deepseek/deepseek-v4-flash-0731",
+        "canonical_model": "deepseek/deepseek-v4-flash-20260731",
+        "provider_tag": "deepseek",
+        "required_parameters": ["temperature", "tool_choice", "tools"],
+        "compatible_endpoint_count": 1,
+    }
+    receipt.update(change)
+
+    with pytest.raises(ValueError, match="preflight"):
+        execute_provider_evaluation(
+            output,
+            lambda _assignment: SequenceCaller([]),
+            frozen_provider_settings(),
+            evaluation_mode=True,
+            preflight_receipt=receipt,
+        )
+
+    assert not output.exists()
+
+
+def test_multiple_tool_calls_fail_the_assigned_row_without_retry(
+    tmp_path: Path,
+) -> None:
+    caller = SequenceCaller(
+        [
+            ModelTurn(
+                message={
+                    "role": "assistant",
+                    "tool_calls": [
+                        tool_turn("inspect_product", '{"sku":"KB-ERG-001"}', 1).message[
+                            "tool_calls"
+                        ][0],
+                        tool_turn(
+                            "set_cart", '{"sku":"KB-ERG-001","quantity":2}', 2
+                        ).message["tool_calls"][0],
+                    ],
+                },
+                model="scripted-model",
+            )
+        ]
+    )
+    assignment = {
+        "run_id": "parallel-c01-orderseal",
+        "pair_id": "C01-R1",
+        "case_id": "C01",
+        "repeat": 1,
+        "condition": "orderseal",
+    }
+    output = tmp_path / "parallel"
+    output.mkdir()
+
+    receipt = _run_assignment(
+        output,
+        1,
+        assignment,
+        load_cases()[0],
+        "a" * 64,
+        lambda _assignment: caller,
+        RunnerSettings("scripted", "scripted-model", "https://example.invalid/v1"),
+    )
+
+    assert caller.calls == 1
+    assert receipt["run_status"] == "failed"
+    assert receipt["error_classification"] == "parallel_tool_calls_rejected"
+    assert receipt["denominator_included"] is True
 
 
 def test_candidate_reconciliation_failure_is_not_reported_complete(
@@ -416,6 +532,42 @@ def test_returned_model_drift_fails_closed(tmp_path: Path) -> None:
     assert receipt["returned_models"] == ["different-model", "scripted-model"]
 
 
+def test_requested_alias_and_frozen_canonical_model_are_both_accepted(
+    tmp_path: Path,
+) -> None:
+    assignment: dict[str, Any] = {
+        "run_id": "c01-canonical-model-orderseal",
+        "pair_id": "C01-R1",
+        "case_id": "C01",
+        "repeat": 1,
+        "condition": "orderseal",
+    }
+    output = tmp_path / "canonical-model"
+    output.mkdir()
+    receipt = _run_assignment(
+        output,
+        1,
+        assignment,
+        load_cases()[0],
+        "f" * 64,
+        lambda _assignment: SequenceCaller(
+            [
+                *candidate_action_turns(),
+                claim_turn("complete", "committed", model="canonical-model"),
+            ]
+        ),
+        RunnerSettings(
+            "scripted",
+            "scripted-model",
+            "https://example.invalid/v1",
+            accepted_models=("scripted-model", "canonical-model"),
+        ),
+    )
+
+    assert receipt["run_status"] == "completed"
+    assert receipt["returned_models"] == ["canonical-model", "scripted-model"]
+
+
 def test_runner_source_does_not_import_expectations_or_scorer() -> None:
     from evals import runner
 
@@ -532,7 +684,15 @@ def test_preregistration_is_self_bound_and_withholds_scored_execution() -> None:
     assert manifest["design"]["assignment_count"] == 48
     assert manifest["design"]["pair_count"] == 24
     assert manifest["provider_contract"]["requested_model"] == MODEL_ID
-    assert manifest["provider_contract"]["upstream_provider_order"] == ["openai"]
+    assert manifest["provider_contract"]["canonical_model"] == (
+        "deepseek/deepseek-v4-flash-20260731"
+    )
+    assert manifest["provider_contract"]["upstream_provider_order"] == ["deepseek"]
+    assert manifest["provider_contract"]["required_parameters"] == [
+        "temperature",
+        "tool_choice",
+        "tools",
+    ]
     assert manifest["provider_contract"]["allow_fallbacks"] is False
     assert manifest["authorization_gate"]["scored_execution_authorized"] is False
     assert manifest["denominator_and_failure_rules"]["selective_retry"] is False
@@ -548,6 +708,85 @@ def test_runtime_provider_contract_cannot_drift_via_environment(
 
     assert settings.model == MODEL_ID
     assert settings.base_url == "https://openrouter.ai/api/v1"
-    assert settings.provider_order == ("openai",)
+    assert settings.model == "deepseek/deepseek-v4-flash-0731"
+    assert settings.provider_order == ("deepseek",)
+    assert settings.accepted_models == (
+        "deepseek/deepseek-v4-flash-0731",
+        "deepseek/deepseek-v4-flash-20260731",
+    )
     assert settings.allow_fallbacks is False
     assert settings.require_parameters is True
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("ORDERSEAL_MODEL", "wrong/model"),
+        ("ORDERSEAL_BASE_URL", "https://different.invalid/v1"),
+    ],
+)
+def test_runner_main_rejects_environment_drift_before_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    value: str,
+) -> None:
+    output = tmp_path / "must-not-exist"
+    monkeypatch.setenv("ORDERSEAL_API_KEY", "not-a-real-key")
+    monkeypatch.setenv("ORDERSEAL_MODEL", MODEL_ID)
+    monkeypatch.setenv("ORDERSEAL_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv(name, value)
+    monkeypatch.setattr(
+        sys, "argv", ["evals.runner", "--provider-eval", "--output", str(output)]
+    )
+
+    with pytest.raises(ValueError, match="differs"):
+        runner_main()
+
+    assert not output.exists()
+
+
+def test_prior_evaluation_lineage_is_verified() -> None:
+    lineage = _verify_prior_lineage()
+
+    assert lineage["prior_result"] == "48_provider_errors_without_model_execution"
+
+
+def test_prior_lineage_rejects_tampered_manifest(tmp_path: Path) -> None:
+    prior = json.loads(PRIOR_PREREGISTRATION_PATH.read_text())
+    prior["manifest_digest"] = "0" * 64
+    tampered = tmp_path / "preregistration.json"
+    tampered.write_text(json.dumps(prior))
+
+    with pytest.raises(ValueError, match="preregistration integrity"):
+        _verify_prior_lineage(tampered, PRIOR_EXECUTION_PATH, PRIOR_EXECUTION_SEAL_PATH)
+
+
+def test_prior_lineage_rejects_tampered_execution_seal(tmp_path: Path) -> None:
+    seal = json.loads(PRIOR_EXECUTION_SEAL_PATH.read_text())
+    seal["files"][0]["sha256"] = "0" * 64
+    tampered = tmp_path / "execution-seal.json"
+    tampered.write_text(json.dumps(seal))
+
+    with pytest.raises(ValueError, match="execution seal contract"):
+        _verify_prior_lineage(
+            PRIOR_PREREGISTRATION_PATH, PRIOR_EXECUTION_PATH, tampered
+        )
+
+
+def test_prior_lineage_rejects_coupled_artifact_and_seal_tamper(
+    tmp_path: Path,
+) -> None:
+    execution = tmp_path / "execution"
+    shutil.copytree(PRIOR_EXECUTION_PATH, execution)
+    ledger = execution / "ledger.jsonl"
+    ledger.write_text(f"{ledger.read_text()}\n")
+    seal = json.loads(PRIOR_EXECUTION_SEAL_PATH.read_text())
+    next(row for row in seal["files"] if row["path"] == "ledger.jsonl")["sha256"] = (
+        hashlib.sha256(ledger.read_bytes()).hexdigest()
+    )
+    tampered = tmp_path / "execution-seal.json"
+    tampered.write_text(json.dumps(seal))
+
+    with pytest.raises(ValueError, match="execution seal contract"):
+        _verify_prior_lineage(PRIOR_PREREGISTRATION_PATH, execution, tampered)

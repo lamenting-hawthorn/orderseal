@@ -160,3 +160,21 @@ or removed experiments remain visible.
 - **Lesson:** model output, durable effect observation, and oracle judgment are
   three separate evidence layers; combining any two makes the comparison look
   cleaner while making it less trustworthy.
+
+### Experiment 8 — DeepSeek route repair after sealed infrastructure null
+
+- **Hypothesis:** the failed 48-row attempt was caused by a frozen route mismatch,
+  not by either evaluated condition.
+- **Intervention:** preserved the sealed failed run, changed the next protocol to
+  `deepseek/deepseek-v4-flash-0731` on the `deepseek` endpoint, accepted only the
+  requested alias or frozen canonical model ID, removed the unsupported
+  `parallel_tool_calls` request parameter, rejected multiple tool calls locally,
+  and added an authenticated metadata preflight before artifact creation.
+- **Observed:** OpenRouter authenticated the existing key and reported a native
+  DeepSeek endpoint supporting temperature, tools, and tool choice. No inference
+  call was made during this repair.
+- **Decision:** create a new preregistration lineage after a clean implementation
+  commit and fresh veto. The prior 48 rows remain immutable and must not be
+  selectively retried.
+- **Lesson:** environment intent is not runtime evidence; freeze and preflight the
+  exact model alias, canonical identity, endpoint tag, and request parameters.

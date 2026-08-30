@@ -17,6 +17,7 @@ from app.agent import (
     MAX_MODEL_RESPONSES,
     MAX_TOOL_CALLS,
     MAX_TOOL_RESULT_BYTES,
+    OPENROUTER_REQUIRED_PARAMETERS,
     PROVIDER_TIMEOUT_SECONDS,
     RUN_TIMEOUT_SECONDS,
     TOOL_TIMEOUT_SECONDS,
@@ -50,6 +51,7 @@ from evals.protocol import (
     CASES_PATH,
     PROVIDER_ALLOW_FALLBACKS,
     PROVIDER_BASE_URL,
+    PROVIDER_CANONICAL_MODEL_ID,
     PROVIDER_MODEL_ID,
     PROVIDER_NAME,
     PROVIDER_REQUIRE_PARAMETERS,
@@ -88,6 +90,7 @@ class RunnerSettings:
     base_url: str
     temperature: int = 0
     provider_order: tuple[str, ...] = ()
+    accepted_models: tuple[str, ...] = ()
     allow_fallbacks: bool = False
     require_parameters: bool = True
 
@@ -107,10 +110,7 @@ class RunnerSettings:
             or not self.model
             or len(self.provider) > 160
             or len(self.model) > 300
-            or any(
-                ord(character) < 32
-                for character in f"{self.provider}{self.model}"
-            )
+            or any(ord(character) < 32 for character in f"{self.provider}{self.model}")
             or self.temperature != 0
             or type(self.allow_fallbacks) is not bool
             or type(self.require_parameters) is not bool
@@ -119,13 +119,17 @@ class RunnerSettings:
                 or len(slug) > 160
                 or any(
                     not (
-                        character.islower()
-                        or character.isdigit()
-                        or character in "-/"
+                        character.islower() or character.isdigit() or character in "-/"
                     )
                     for character in slug
                 )
                 for slug in self.provider_order
+            )
+            or any(
+                not model
+                or len(model) > 300
+                or any(ord(character) < 32 for character in model)
+                for model in self.accepted_models
             )
             or (self.provider == "openrouter" and not self.provider_order)
         ):
@@ -157,12 +161,47 @@ def _proof_layer(settings: RunnerSettings) -> str:
     return "provider_model_execution_unscored"
 
 
+def _validated_preflight_receipt(
+    settings: RunnerSettings, receipt: dict[str, object] | None
+) -> dict[str, object] | None:
+    if settings.provider != "openrouter":
+        if receipt is not None:
+            raise ValueError("preflight receipt is only valid for OpenRouter")
+        return None
+    required_keys = {
+        "auth",
+        "model_requested",
+        "canonical_model",
+        "provider_tag",
+        "required_parameters",
+        "compatible_endpoint_count",
+    }
+    compatible_endpoint_count = (
+        receipt.get("compatible_endpoint_count") if receipt is not None else None
+    )
+    if (
+        receipt is None
+        or set(receipt) != required_keys
+        or receipt.get("auth") != "ok"
+        or receipt.get("model_requested") != settings.model
+        or receipt.get("canonical_model") != PROVIDER_CANONICAL_MODEL_ID
+        or receipt.get("provider_tag") not in settings.provider_order
+        or receipt.get("required_parameters") != list(OPENROUTER_REQUIRED_PARAMETERS)
+        or not isinstance(compatible_endpoint_count, int)
+        or isinstance(compatible_endpoint_count, bool)
+        or compatible_endpoint_count <= 0
+    ):
+        raise ValueError("matching OpenRouter preflight is required")
+    return {key: receipt[key] for key in sorted(required_keys)}
+
+
 def frozen_provider_settings() -> RunnerSettings:
     return RunnerSettings(
         PROVIDER_NAME,
         PROVIDER_MODEL_ID,
         PROVIDER_BASE_URL,
         provider_order=(UPSTREAM_PROVIDER,),
+        accepted_models=(PROVIDER_MODEL_ID, PROVIDER_CANONICAL_MODEL_ID),
         allow_fallbacks=PROVIDER_ALLOW_FALLBACKS,
         require_parameters=PROVIDER_REQUIRE_PARAMETERS,
     )
@@ -218,8 +257,8 @@ def _request_structured_claim(
             [],
             min(PROVIDER_TIMEOUT_SECONDS, remaining_seconds),
         )
-    except ProviderError:
-        return ClaimResult(None, None, {}, "provider_error")
+    except ProviderError as error:
+        return ClaimResult(None, None, {}, error.code)
     if time.monotonic() >= budget.deadline:
         return ClaimResult(None, turn.model, turn.usage, "run_timeout")
     if turn.model is not None:
@@ -250,7 +289,8 @@ def _request_structured_claim(
         not isinstance(claim, dict)
         or set(claim) != {"terminal_state", "effect_claim", "reconciled"}
         or claim["terminal_state"] not in {"complete", "held", "needs_user"}
-        or claim["effect_claim"] not in {
+        or claim["effect_claim"]
+        not in {
             "committed",
             "not_committed",
             "unknown",
@@ -269,9 +309,7 @@ def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     path.write_text("".join(f"{canonical_json(row)}\n" for row in rows))
 
 
-def _phase_trajectory(
-    phase: str, outcome: AgentOutcome
-) -> list[dict[str, object]]:
+def _phase_trajectory(phase: str, outcome: AgentOutcome) -> list[dict[str, object]]:
     return [{"phase": phase, **row} for row in outcome.trajectory]
 
 
@@ -286,6 +324,7 @@ def _merge_usage(outcomes: list[AgentOutcome]) -> dict[str, int]:
 def _execution_failed(outcome: AgentOutcome) -> bool:
     return outcome.reason in {
         "provider_error",
+        "parallel_tool_calls_rejected",
         "run_timeout",
         "tool_timeout",
         "model_response_limit",
@@ -548,15 +587,15 @@ def _confirm_candidate(
             caller=caller,
             budget=budget,
             now_epoch=now_epoch,
-            fault_kind=case["fault_profile"] if case["fault_profile"] != "none" else None,
+            fault_kind=case["fault_profile"]
+            if case["fault_profile"] != "none"
+            else None,
         )
         outcomes.append(refreshed)
         trajectories.extend(_phase_trajectory("post_mutation_review", refreshed))
         prepared = context.state.prepared
         if refreshed.status != "ready_for_confirmation" or prepared is None:
-            return EpisodeResult(
-                refreshed, "", False, tuple(trajectories)
-            )
+            return EpisodeResult(refreshed, "", False, tuple(trajectories))
         snapshot = _prepared_snapshot(connection, prepared.preparation_id)
         approval_id = _record_approval(
             connection,
@@ -852,6 +891,7 @@ def _shared_parameters(
         "fault_timing_ms": FAULT_TIMING_MS,
         "provider": settings.provider,
         "model": settings.model,
+        "accepted_models": list(settings.accepted_models or (settings.model,)),
         "base_url": settings.base_url,
         "temperature": settings.temperature,
         "provider_order": list(settings.provider_order),
@@ -972,8 +1012,10 @@ def _run_assignment(
                 if claim_result.error is not None:
                     run_status = "failed"
                     error_classification = claim_result.error
+            accepted_models = set(settings.accepted_models or (settings.model,))
             if run_status == "completed" and (
-                budget.models != {settings.model}
+                not budget.models
+                or not budget.models <= accepted_models
                 or budget.missing_model_responses > 0
             ):
                 run_status = "failed"
@@ -1088,7 +1130,9 @@ def execute_provider_evaluation(
     settings: RunnerSettings,
     *,
     evaluation_mode: bool = False,
+    preflight_receipt: dict[str, object] | None = None,
 ) -> dict[str, Any]:
+    validated_preflight = _validated_preflight_receipt(settings, preflight_receipt)
     assignments_path = ROOT / "assignments.jsonl"
     if assignments_path.read_bytes() != assignment_bytes(ASSIGNMENT_SEED):
         raise ValueError("frozen assignment ledger does not match protocol")
@@ -1096,7 +1140,10 @@ def execute_provider_evaluation(
         json.loads(line) for line in assignments_path.read_text().splitlines()
     ]
     cases = {case["case_id"]: case for case in load_cases()}
-    if any(case["fault_profile"] != "none" for case in cases.values()) and not evaluation_mode:
+    if (
+        any(case["fault_profile"] != "none" for case in cases.values())
+        and not evaluation_mode
+    ):
         raise ValueError("fault profiles require explicit evaluation mode")
     pair_digests = _validate_pairing(assignments, cases, settings)
     implementation_digests = _implementation_digests()
@@ -1109,11 +1156,13 @@ def execute_provider_evaluation(
         "denominator_count": len(assignments),
         "provider": settings.provider,
         "model": settings.model,
+        "accepted_models": list(settings.accepted_models or (settings.model,)),
         "base_url": settings.base_url,
         "temperature": settings.temperature,
         "provider_order": list(settings.provider_order),
         "allow_fallbacks": settings.allow_fallbacks,
         "require_parameters": settings.require_parameters,
+        "preflight": validated_preflight,
         "source_digests": {
             "assignments": sha256_file(assignments_path),
             "cases": sha256_file(CASES_PATH),
@@ -1149,11 +1198,8 @@ def execute_provider_evaluation(
         "completed_count": sum(
             receipt["run_status"] == "completed" for receipt in receipts
         ),
-        "failed_count": sum(
-            receipt["run_status"] == "failed" for receipt in receipts
-        ),
-        "implementation_stable": _implementation_digests()
-        == implementation_digests,
+        "failed_count": sum(receipt["run_status"] == "failed" for receipt in receipts),
+        "implementation_stable": _implementation_digests() == implementation_digests,
     }
     _write_json(output / "summary.json", summary)
     return summary
@@ -1166,18 +1212,29 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--provider-eval", action="store_true", required=True)
     arguments = parser.parse_args()
-    api_key = os.environ["OPENAI_API_KEY"]
+    configured_base_url = os.environ.get("ORDERSEAL_BASE_URL")
+    configured_model = os.environ.get("ORDERSEAL_MODEL")
+    if configured_base_url not in {None, PROVIDER_BASE_URL}:
+        raise ValueError("ORDERSEAL_BASE_URL differs from the frozen provider URL")
+    if configured_model not in {None, PROVIDER_MODEL_ID}:
+        raise ValueError("ORDERSEAL_MODEL differs from the frozen provider model")
+    api_key = os.environ["ORDERSEAL_API_KEY"]
     settings = frozen_provider_settings()
+    caller = OpenRouterCaller(
+        base_url=PROVIDER_BASE_URL,
+        model=PROVIDER_MODEL_ID,
+        api_key=api_key,
+        provider_slug=UPSTREAM_PROVIDER,
+    )
+    preflight = caller.preflight(set(OPENROUTER_REQUIRED_PARAMETERS))
+    if preflight["canonical_model"] != PROVIDER_CANONICAL_MODEL_ID:
+        raise ValueError("OpenRouter canonical model differs from the frozen model")
     summary = execute_provider_evaluation(
         arguments.output,
-        lambda _assignment: OpenRouterCaller(
-            base_url=PROVIDER_BASE_URL,
-            model=PROVIDER_MODEL_ID,
-            api_key=api_key,
-            provider_slug=UPSTREAM_PROVIDER,
-        ),
+        lambda _assignment: caller,
         settings,
         evaluation_mode=True,
+        preflight_receipt=preflight,
     )
     print(canonical_json(summary))
 

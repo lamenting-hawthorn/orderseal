@@ -8,7 +8,7 @@ import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -36,6 +36,7 @@ MAX_USAGE_TOKENS = 1_000_000_000
 PROVIDER_TIMEOUT_SECONDS = 30
 RUN_TIMEOUT_SECONDS = 120
 TOOL_TIMEOUT_SECONDS = 3
+OPENROUTER_REQUIRED_PARAMETERS = ("temperature", "tool_choice", "tools")
 
 SYSTEM_PROMPT = f"""You are OrderSeal's investigation controller.
 The server-owned constraints are authoritative: {canonical_json(DEMO_CONSTRAINTS)}
@@ -46,7 +47,17 @@ Stop after prepare_order reports ready_for_confirmation."""
 
 
 class ProviderError(Exception):
-    pass
+    def __init__(self, code: str) -> None:
+        if (
+            not 1 <= len(code) <= 80
+            or any(
+                not (character.islower() or character.isdigit() or character == "_")
+                for character in code
+            )
+        ):
+            raise ValueError("provider error code must be a safe identifier")
+        self.code = code
+        super().__init__(code)
 
 
 @dataclass(frozen=True)
@@ -661,7 +672,14 @@ def run_tool_program(
                 program.schemas,
                 min(PROVIDER_TIMEOUT_SECONDS, remaining_seconds),
             )
-        except ProviderError:
+        except ProviderError as error:
+            record_trajectory(
+                {
+                    "event": "provider_failed",
+                    "tool": "<provider>",
+                    "outcome": error.code,
+                }
+            )
             return _held("provider_error", state, trajectory, model, usage)
         if monotonic() >= active_budget.deadline:
             return _held("run_timeout", state, trajectory, model, usage)
@@ -706,6 +724,8 @@ def run_tool_program(
             )
         if active_budget.tool_calls + len(tool_calls) > MAX_TOOL_CALLS:
             return _held("tool_call_limit", state, trajectory, model, usage)
+        if len(tool_calls) != 1:
+            return _held("parallel_tool_calls_rejected", state, trajectory, model, usage)
         active_budget.tool_calls += len(tool_calls)
         messages.append(
             {
@@ -916,6 +936,92 @@ class OpenRouterCaller:
         self._api_key = api_key
         self._provider_slug = provider_slug
 
+    @staticmethod
+    def _read_json(
+        request: urllib.request.Request, timeout_seconds: float
+    ) -> dict[str, Any]:
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=timeout_seconds,
+                context=ssl.create_default_context(),
+            ) as response:
+                raw_response = response.read(MAX_PROVIDER_RESPONSE_BYTES + 1)
+        except urllib.error.HTTPError as error:
+            raise ProviderError(f"provider_http_{error.code}") from error
+        except (urllib.error.URLError, TimeoutError) as error:
+            raise ProviderError("provider_request_failed") from error
+        if len(raw_response) > MAX_PROVIDER_RESPONSE_BYTES:
+            raise ProviderError("provider_response_too_large")
+        try:
+            response_data = json.loads(raw_response)
+        except json.JSONDecodeError as error:
+            raise ProviderError("provider_response_invalid") from error
+        if not isinstance(response_data, dict):
+            raise ProviderError("provider_response_invalid")
+        return response_data
+
+    def preflight(self, required_parameters: set[str]) -> dict[str, object]:
+        if self._provider_slug is None:
+            raise ProviderError("provider_route_missing")
+        if not required_parameters or any(
+            not parameter or len(parameter) > 80 for parameter in required_parameters
+        ):
+            raise ValueError("required parameters must be non-empty identifiers")
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "User-Agent": "OrderSeal-Agent/0.1",
+        }
+        self._read_json(
+            urllib.request.Request(f"{self._base_url}/key", headers=headers),
+            PROVIDER_TIMEOUT_SECONDS,
+        )
+        model_path = quote(self._model, safe="/-._:")
+        model_response = self._read_json(
+            urllib.request.Request(
+                f"{self._base_url}/model/{model_path}", headers=headers
+            ),
+            PROVIDER_TIMEOUT_SECONDS,
+        )
+        model_data = model_response.get("data")
+        if not isinstance(model_data, dict):
+            raise ProviderError("provider_model_metadata_invalid")
+        canonical_model = model_data.get("canonical_slug")
+        if not isinstance(canonical_model, str):
+            raise ProviderError("provider_model_metadata_invalid")
+        endpoint_response = self._read_json(
+            urllib.request.Request(
+                f"{self._base_url}/models/{model_path}/endpoints", headers=headers
+            ),
+            PROVIDER_TIMEOUT_SECONDS,
+        )
+        endpoint_data = endpoint_response.get("data")
+        endpoints = endpoint_data.get("endpoints") if isinstance(endpoint_data, dict) else None
+        if not isinstance(endpoints, list):
+            raise ProviderError("provider_endpoint_metadata_invalid")
+        compatible: list[dict[str, Any]] = []
+        for endpoint in endpoints:
+            if not isinstance(endpoint, dict):
+                continue
+            supported = endpoint.get("supported_parameters")
+            if (
+                endpoint.get("tag") == self._provider_slug
+                and isinstance(supported, list)
+                and all(isinstance(parameter, str) for parameter in supported)
+                and required_parameters <= set(supported)
+            ):
+                compatible.append(endpoint)
+        if not compatible:
+            raise ProviderError("provider_route_incompatible")
+        return {
+            "auth": "ok",
+            "model_requested": self._model,
+            "canonical_model": canonical_model,
+            "provider_tag": self._provider_slug,
+            "required_parameters": sorted(required_parameters),
+            "compatible_endpoint_count": len(compatible),
+        }
+
     def __call__(
         self,
         messages: list[dict[str, Any]],
@@ -934,7 +1040,6 @@ class OpenRouterCaller:
                 {
                     "tools": tools,
                     "tool_choice": "auto",
-                    "parallel_tool_calls": False,
                 }
             )
         if self._provider_slug is not None:
@@ -953,21 +1058,10 @@ class OpenRouterCaller:
             },
             method="POST",
         )
+        response_data = self._read_json(request, timeout_seconds)
         try:
-            with urllib.request.urlopen(
-                request,
-                timeout=timeout_seconds,
-                context=ssl.create_default_context(),
-            ) as response:
-                raw_response = response.read(MAX_PROVIDER_RESPONSE_BYTES + 1)
-        except (urllib.error.URLError, TimeoutError) as error:
-            raise ProviderError("provider_request_failed") from error
-        if len(raw_response) > MAX_PROVIDER_RESPONSE_BYTES:
-            raise ProviderError("provider_response_too_large")
-        try:
-            response_data = json.loads(raw_response)
             message = response_data["choices"][0]["message"]
-        except (json.JSONDecodeError, KeyError, IndexError, TypeError) as error:
+        except (KeyError, IndexError, TypeError) as error:
             raise ProviderError("provider_response_invalid") from error
         if not isinstance(message, dict):
             raise ProviderError("provider_message_invalid")
