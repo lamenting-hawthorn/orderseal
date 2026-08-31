@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import hashlib
 import json
+import os
 import shutil
 import sqlite3
 import sys
@@ -36,8 +37,10 @@ from evals.preregister import (
 from evals.protocol import build_assignments, load_cases
 from evals.runner import (
     RunnerSettings,
+    _load_local_env,
     _run_assignment,
     _shared_parameters,
+    _validate_owner_authorization,
     execute_provider_evaluation,
     frozen_provider_settings,
     main as runner_main,
@@ -258,7 +261,7 @@ def test_openrouter_execution_requires_preflight_before_output(
     "change",
     [
         {"auth": "failed"},
-        {"canonical_model": "deepseek/deepseek-v4-flash-0731"},
+        {"canonical_model": "openai/gpt-5.6-luna"},
         {"compatible_endpoint_count": 0},
         {"compatible_endpoint_count": True},
         {"route_probe": "failed"},
@@ -272,13 +275,20 @@ def test_openrouter_execution_rejects_forged_preflight(
     output = tmp_path / "must-not-exist"
     receipt: dict[str, object] = {
         "auth": "ok",
-        "model_requested": "deepseek/deepseek-v4-flash-0731",
-        "canonical_model": "deepseek/deepseek-v4-flash-20260731",
-        "provider_tag": "baidu/fp8",
-        "required_parameters": ["temperature", "tool_choice", "tools"],
+        "model_requested": "openai/gpt-5.6-luna",
+        "canonical_model": "openai/gpt-5.6-luna-20260709",
+        "provider_tag": "openai",
+        "required_parameters": [
+            "parallel_tool_calls",
+            "reasoning",
+            "temperature",
+            "tool_choice",
+            "tools",
+        ],
         "compatible_endpoint_count": 1,
+        "require_parameters": False,
         "route_probe": "generic_tool_call_ok",
-        "route_probe_model": "deepseek/deepseek-v4-flash-0731",
+        "route_probe_model": "openai/gpt-5.6-luna",
     }
     receipt.update(change)
 
@@ -689,10 +699,12 @@ def test_preregistration_is_self_bound_and_withholds_scored_execution() -> None:
     assert manifest["design"]["pair_count"] == 24
     assert manifest["provider_contract"]["requested_model"] == MODEL_ID
     assert manifest["provider_contract"]["canonical_model"] == (
-        "deepseek/deepseek-v4-flash-20260731"
+        "openai/gpt-5.6-luna-20260709"
     )
-    assert manifest["provider_contract"]["upstream_provider_order"] == ["baidu/fp8"]
+    assert manifest["provider_contract"]["upstream_provider_order"] == ["openai"]
     assert manifest["provider_contract"]["required_parameters"] == [
+        "parallel_tool_calls",
+        "reasoning",
         "temperature",
         "tool_choice",
         "tools",
@@ -712,14 +724,32 @@ def test_runtime_provider_contract_cannot_drift_via_environment(
 
     assert settings.model == MODEL_ID
     assert settings.base_url == "https://openrouter.ai/api/v1"
-    assert settings.model == "deepseek/deepseek-v4-flash-0731"
-    assert settings.provider_order == ("baidu/fp8",)
+    assert settings.model == "openai/gpt-5.6-luna"
+    assert settings.provider_order == ("openai",)
     assert settings.accepted_models == (
-        "deepseek/deepseek-v4-flash-0731",
-        "deepseek/deepseek-v4-flash-20260731",
+        "openai/gpt-5.6-luna",
+        "openai/gpt-5.6-luna-20260709",
     )
     assert settings.allow_fallbacks is False
-    assert settings.require_parameters is True
+    assert settings.require_parameters is False
+
+
+def test_local_env_is_parsed_without_shell_evaluation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    marker = tmp_path / "must-not-exist"
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        f"ORDERSEAL_API_KEY=$(touch {marker})\nORDERSEAL_UPSTREAM_PROVIDER=openai\n"
+    )
+    monkeypatch.delenv("ORDERSEAL_API_KEY", raising=False)
+    monkeypatch.delenv("ORDERSEAL_UPSTREAM_PROVIDER", raising=False)
+
+    _load_local_env(env_path)
+
+    assert os.environ["ORDERSEAL_API_KEY"].startswith("$(touch ")
+    assert os.environ["ORDERSEAL_UPSTREAM_PROVIDER"] == "openai"
+    assert not marker.exists()
 
 
 @pytest.mark.parametrize(
@@ -740,10 +770,19 @@ def test_runner_main_rejects_environment_drift_before_output(
     monkeypatch.setenv("ORDERSEAL_API_KEY", "not-a-real-key")
     monkeypatch.setenv("ORDERSEAL_MODEL", MODEL_ID)
     monkeypatch.setenv("ORDERSEAL_BASE_URL", "https://openrouter.ai/api/v1")
-    monkeypatch.setenv("ORDERSEAL_UPSTREAM_PROVIDER", "baidu/fp8")
+    monkeypatch.setenv("ORDERSEAL_UPSTREAM_PROVIDER", "openai")
     monkeypatch.setenv(name, value)
     monkeypatch.setattr(
-        sys, "argv", ["evals.runner", "--provider-eval", "--output", str(output)]
+        sys,
+        "argv",
+        [
+            "evals.runner",
+            "--provider-eval",
+            "--output",
+            str(output),
+            "--owner-authorized-manifest-digest",
+            "0" * 64,
+        ],
     )
 
     with pytest.raises(ValueError, match="differs"):
@@ -752,10 +791,29 @@ def test_runner_main_rejects_environment_drift_before_output(
     assert not output.exists()
 
 
+def test_owner_authorization_is_bound_to_manifest_and_implementation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.domain import digest
+
+    monkeypatch.setattr("evals.runner._implementation_digests", lambda: {"x": "y"})
+    body = {"implementation_digests": {"x": "y"}}
+    manifest_digest = digest("orderseal-preregistration-v1", body)
+    path = tmp_path / "preregistration.json"
+    path.write_text(json.dumps({**body, "manifest_digest": manifest_digest}))
+
+    _validate_owner_authorization(manifest_digest, path)
+
+    with pytest.raises(ValueError, match="authorization"):
+        _validate_owner_authorization("0" * 64, path)
+
+
 def test_prior_evaluation_lineage_is_verified() -> None:
     lineage = _verify_prior_lineage()
 
-    assert lineage["prior_result"] == "48_provider_errors_without_model_execution"
+    assert lineage["prior_result"] == (
+        "29_parallel_tool_call_rejections_and_19_provider_errors"
+    )
 
 
 def test_prior_lineage_rejects_tampered_manifest(tmp_path: Path) -> None:

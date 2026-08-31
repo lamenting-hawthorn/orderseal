@@ -569,7 +569,7 @@ def test_openrouter_caller_pins_upstream_provider_without_fallback(
     response_body = json.dumps(
         {
             "choices": [{"message": {"role": "assistant", "content": "done"}}],
-            "model": "deepseek/deepseek-v4-flash-20260731",
+            "model": "openai/gpt-5.6-luna-20260709",
             "usage": {"total_tokens": 1},
         }
     ).encode()
@@ -592,20 +592,22 @@ def test_openrouter_caller_pins_upstream_provider_without_fallback(
     monkeypatch.setattr(agent_module.urllib.request, "urlopen", fake_urlopen)
     caller = OpenRouterCaller(
         base_url="https://openrouter.invalid/v1",
-        model="deepseek/deepseek-v4-flash-0731",
+        model="openai/gpt-5.6-luna",
         api_key="test-key-not-a-secret",
-        provider_slug="baidu/fp8",
+        provider_slug="openai",
+        require_parameters=False,
     )
 
     caller([], TOOL_SCHEMAS, 1)
 
     assert captured["payload"]["provider"] == {
-        "order": ["baidu/fp8"],
+        "order": ["openai"],
         "allow_fallbacks": False,
-        "require_parameters": True,
+        "require_parameters": False,
     }
     assert captured["payload"]["temperature"] == 0
-    assert "parallel_tool_calls" not in captured["payload"]
+    assert captured["payload"]["parallel_tool_calls"] is False
+    assert captured["payload"]["reasoning"] == {"enabled": True}
 
 
 def test_openrouter_preflight_accepts_only_compatible_frozen_route(
@@ -613,15 +615,17 @@ def test_openrouter_preflight_accepts_only_compatible_frozen_route(
 ) -> None:
     responses = {
         "/key": {"data": {}},
-        "/model/deepseek/deepseek-v4-flash-0731": {
-            "data": {"canonical_slug": "deepseek/deepseek-v4-flash-20260731"}
+        "/model/openai/gpt-5.6-luna": {
+            "data": {"canonical_slug": "openai/gpt-5.6-luna-20260709"}
         },
-        "/models/deepseek/deepseek-v4-flash-0731/endpoints": {
+        "/models/openai/gpt-5.6-luna/endpoints": {
             "data": {
                 "endpoints": [
                     {
-                        "tag": "baidu/fp8",
+                        "tag": "openai",
                         "supported_parameters": [
+                            "parallel_tool_calls",
+                            "reasoning",
                             "temperature",
                             "tool_choice",
                             "tools",
@@ -648,7 +652,7 @@ def test_openrouter_preflight_accepts_only_compatible_frozen_route(
                     }
                 }
             ],
-            "model": "deepseek/deepseek-v4-flash-0731",
+            "model": "openai/gpt-5.6-luna",
             "usage": {"total_tokens": 1},
         },
     }
@@ -673,22 +677,38 @@ def test_openrouter_preflight_accepts_only_compatible_frozen_route(
     monkeypatch.setattr(agent_module.urllib.request, "urlopen", fake_urlopen)
     caller = OpenRouterCaller(
         base_url="https://openrouter.invalid/v1",
-        model="deepseek/deepseek-v4-flash-0731",
+        model="openai/gpt-5.6-luna",
         api_key="test-key-not-a-secret",
-        provider_slug="baidu/fp8",
+        provider_slug="openai",
+        require_parameters=False,
     )
 
-    receipt = caller.preflight({"temperature", "tool_choice", "tools"})
+    receipt = caller.preflight(
+        {
+            "parallel_tool_calls",
+            "reasoning",
+            "temperature",
+            "tool_choice",
+            "tools",
+        }
+    )
 
     assert receipt == {
         "auth": "ok",
-        "model_requested": "deepseek/deepseek-v4-flash-0731",
-        "canonical_model": "deepseek/deepseek-v4-flash-20260731",
-        "provider_tag": "baidu/fp8",
-        "required_parameters": ["temperature", "tool_choice", "tools"],
+        "model_requested": "openai/gpt-5.6-luna",
+        "canonical_model": "openai/gpt-5.6-luna-20260709",
+        "provider_tag": "openai",
+        "required_parameters": [
+            "parallel_tool_calls",
+            "reasoning",
+            "temperature",
+            "tool_choice",
+            "tools",
+        ],
         "compatible_endpoint_count": 1,
+        "require_parameters": False,
         "route_probe": "generic_tool_call_ok",
-        "route_probe_model": "deepseek/deepseek-v4-flash-0731",
+        "route_probe_model": "openai/gpt-5.6-luna",
     }
 
 
@@ -718,8 +738,10 @@ def test_openrouter_preflight_rejects_metadata_only_false_positive(
                 "data": {
                     "endpoints": [
                         {
-                            "tag": "baidu/fp8",
+                            "tag": "openai",
                             "supported_parameters": [
+                                "parallel_tool_calls",
+                                "reasoning",
                                 "temperature",
                                 "tool_choice",
                                 "tools",
@@ -729,9 +751,7 @@ def test_openrouter_preflight_rejects_metadata_only_false_positive(
                 }
             }
         elif "/model/" in request.full_url:
-            body = {
-                "data": {"canonical_slug": "deepseek/deepseek-v4-flash-20260731"}
-            }
+            body = {"data": {"canonical_slug": "openai/gpt-5.6-luna-20260709"}}
         else:
             body = {"data": {}}
         return FakeResponse(body)
@@ -739,13 +759,22 @@ def test_openrouter_preflight_rejects_metadata_only_false_positive(
     monkeypatch.setattr(agent_module.urllib.request, "urlopen", fake_urlopen)
     caller = OpenRouterCaller(
         base_url="https://openrouter.invalid/v1",
-        model="deepseek/deepseek-v4-flash-0731",
+        model="openai/gpt-5.6-luna",
         api_key="test-key-not-a-secret",
-        provider_slug="baidu/fp8",
+        provider_slug="openai",
+        require_parameters=False,
     )
 
     with pytest.raises(ProviderError, match="provider_http_404"):
-        caller.preflight({"temperature", "tool_choice", "tools"})
+        caller.preflight(
+            {
+                "parallel_tool_calls",
+                "reasoning",
+                "temperature",
+                "tool_choice",
+                "tools",
+            }
+        )
 
 
 def test_controller_rejects_multiple_tool_calls_from_one_response(
@@ -765,3 +794,19 @@ def test_controller_rejects_multiple_tool_calls_from_one_response(
 
     assert outcome.status == "held"
     assert outcome.reason == "parallel_tool_calls_rejected"
+
+
+def test_reasoning_details_are_preserved_across_tool_turns(
+    agent_database: Path,
+) -> None:
+    turns = success_turns()
+    reasoning_details = [
+        {"type": "reasoning.summary", "summary": "inspect the requested product"}
+    ]
+    turns[0].message["reasoning_details"] = reasoning_details
+    caller = SequenceCaller(turns)
+
+    outcome = run_agent(agent_database, caller)
+
+    assert outcome.status == "ready_for_confirmation"
+    assert caller.message_snapshots[1][-2]["reasoning_details"] == reasoning_details

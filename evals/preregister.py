@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -41,27 +42,28 @@ from evals.runner import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-PREREGISTRATION_PATH = PROJECT_ROOT / "preregistration-deepseek-v2.json"
+ROUTE_QUALIFICATION_PATH = PROJECT_ROOT / "route-qualification-openai-gpt-5-6-luna.json"
+PREREGISTRATION_PATH = PROJECT_ROOT / "preregistration-luna-v1.json"
 MODEL_ID = PROVIDER_MODEL_ID
 BASE_URL = PROVIDER_BASE_URL
-PRIOR_PREREGISTRATION_PATH = PROJECT_ROOT / "preregistration-deepseek-v1.json"
+PRIOR_PREREGISTRATION_PATH = PROJECT_ROOT / "preregistration-deepseek-v2.json"
 PRIOR_EXECUTION_PATH = (
-    PROJECT_ROOT / "artifacts" / "scored-20260830-deepseek-v4-flash-0731"
+    PROJECT_ROOT / "artifacts" / "scored-20260830-deepseek-v4-flash-0731-baidu-fp8"
 )
 PRIOR_EXECUTION_SEAL_PATH = (
     PROJECT_ROOT
     / "artifacts"
-    / "scored-20260830-deepseek-v4-flash-0731-execution-seal.json"
+    / "scored-20260830-deepseek-v4-flash-0731-baidu-fp8-execution-seal.json"
 )
 PRIOR_MANIFEST_DIGEST = (
-    "18c4a642af73dd38d7cf852f530d9ea6d6ff3d9956a5fd60e78e06ebe2a89808"
+    "09e011ad6f9fc00067690aa2e467ef55ad40091d47cb31a02015ad01efe2f41d"
 )
-PRIOR_TREE_DIGEST = "5a539c4ec5e9b68e7e410e2aaeb9454bfbc2fe2ae644145559ac5202f420afdb"
+PRIOR_TREE_DIGEST = "e7ef5f0b974b7470ca88b8e9d7902498b53686393f2f91d6e9be9d43bdad4b8f"
 PRIOR_LINEAGE = {
     "prior_manifest_digest": PRIOR_MANIFEST_DIGEST,
     "prior_execution_tree_digest": PRIOR_TREE_DIGEST,
-    "prior_result": "48_provider_errors_without_model_execution",
-    "change_reason": "pinned_DeepSeek_endpoint_returned_404_and_Baidu_fp8_passed_a_generic_tool_probe",
+    "prior_result": "29_parallel_tool_call_rejections_and_19_provider_errors",
+    "change_reason": "Baidu_failed_all_48_and_Inceptron_failed_strict_qualification; Luna_OpenAI_supports_the_exact_pinned_request",
 }
 
 
@@ -81,6 +83,27 @@ def _read_object(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"expected JSON object: {path}")
     return value
+
+
+def _verify_route_qualification(path: Path = ROUTE_QUALIFICATION_PATH) -> None:
+    receipt = _read_object(path)
+    claimed_digest = receipt.pop("receipt_digest", None)
+    probes = receipt.get("probes")
+    if (
+        claimed_digest != digest("orderseal-route-qualification-v1", receipt)
+        or receipt.get("model") != MODEL_ID
+        or receipt.get("provider") != UPSTREAM_PROVIDER
+        or receipt.get("probe_count") != 8
+        or receipt.get("all_passed") is not True
+        or receipt.get("scored_cases_used") is not False
+        or not isinstance(probes, list)
+        or len(probes) != 8
+        or any(
+            not isinstance(probe, dict) or probe.get("passed") is not True
+            for probe in probes
+        )
+    ):
+        raise ValueError("route qualification receipt check failed")
 
 
 def _verify_prior_lineage(
@@ -138,11 +161,15 @@ def _verify_prior_lineage(
         json.loads(line)
         for line in (execution_path / "ledger.jsonl").read_text().splitlines()
     ]
-    if len(ledger) != 48 or any(
-        row.get("run_status") != "failed"
-        or row.get("error_classification") != "provider_error"
-        or row.get("denominator_included") is not True
-        for row in ledger
+    error_counts = Counter(row.get("error_classification") for row in ledger)
+    if (
+        len(ledger) != 48
+        or error_counts != {"parallel_tool_calls_rejected": 29, "provider_error": 19}
+        or any(
+            row.get("run_status") != "failed"
+            or row.get("denominator_included") is not True
+            for row in ledger
+        )
     ):
         raise ValueError("prior execution ledger check failed")
     return dict(PRIOR_LINEAGE)
@@ -151,6 +178,7 @@ def _verify_prior_lineage(
 def build_preregistration(
     *, source_revision: str, frozen_by: str, frozen_at: str
 ) -> dict[str, Any]:
+    _verify_route_qualification()
     assignments_path = ROOT / "assignments.jsonl"
     if assignments_path.read_bytes() != assignment_bytes(ASSIGNMENT_SEED):
         raise ValueError("frozen assignment ledger does not match protocol")
@@ -216,6 +244,8 @@ def build_preregistration(
             "runner": sha256_file(ROOT / "runner.py"),
             "scorer": sha256_file(ROOT / "score.py"),
             "database_schema_and_seed": sha256_file(PROJECT_ROOT / "app" / "db.py"),
+            "route_qualification": sha256_file(ROUTE_QUALIFICATION_PATH),
+            "route_qualifier": sha256_file(ROOT / "qualify_route.py"),
         },
         "condition_contracts": {
             "orderseal": {
@@ -245,13 +275,14 @@ def build_preregistration(
             "accepted_returned_models": [MODEL_ID, PROVIDER_CANONICAL_MODEL_ID],
             "returned_model_rule": "every response must report the requested alias or its frozen canonical model ID",
             "temperature": 0,
+            "reasoning": "enabled; provider reasoning_details are preserved unmodified in-memory across tool turns and never persisted",
             "required_parameters": list(OPENROUTER_REQUIRED_PARAMETERS),
-            "parallel_tool_calls": "request parameter omitted; multiple tool calls fail closed in the local controller",
+            "parallel_tool_calls": "false at the provider and multiple tool calls still fail closed locally",
             "upstream_provider_order": [UPSTREAM_PROVIDER],
             "allow_fallbacks": PROVIDER_ALLOW_FALLBACKS,
             "require_parameters": PROVIDER_REQUIRE_PARAMETERS,
             "catalog_verified_on": "2026-08-30",
-            "catalog_source": "https://openrouter.ai/deepseek/deepseek-v4-flash-0731",
+            "catalog_source": "https://openrouter.ai/openai/gpt-5.6-luna",
             "preflight_required_before_output_creation": True,
             "preflight_route_probe": "generic non-scored health_check tool call must succeed on the pinned endpoint",
         },
@@ -303,6 +334,7 @@ def build_preregistration(
                 "unexpected exception",
                 "malformed output",
                 "multiple tool calls in one model response",
+                "malformed provider reasoning details",
                 "missing model identity",
                 "missing artifact",
             ],
@@ -344,7 +376,7 @@ def build_preregistration(
         },
         "authorization_gate": {
             "scored_execution_authorized": False,
-            "required_action": "separate explicit project-owner authorization after manifest review",
+            "required_action": "separate explicit project-owner authorization after manifest review; operator must pass this manifest digest to the runner",
             "prohibited_before_authorization": [
                 "provider calls using C01-C12",
                 "partial or pilot scored runs",

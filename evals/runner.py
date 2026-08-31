@@ -62,6 +62,31 @@ from evals.protocol import (
     sha256_file,
 )
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PREREGISTRATION_PATH = PROJECT_ROOT / "preregistration-luna-v1.json"
+LOCAL_ENV_KEYS = {
+    "ORDERSEAL_API_KEY",
+    "ORDERSEAL_BASE_URL",
+    "ORDERSEAL_MODEL",
+    "ORDERSEAL_UPSTREAM_PROVIDER",
+}
+
+
+def _load_local_env(path: Path = PROJECT_ROOT / ".env") -> None:
+    if not path.exists():
+        return
+    seen: set[str] = set()
+    for line_number, raw_line in enumerate(path.read_text().splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, separator, value = line.partition("=")
+        if separator != "=" or key not in LOCAL_ENV_KEYS or key in seen:
+            raise ValueError(f"invalid .env entry on line {line_number}")
+        seen.add(key)
+        os.environ.setdefault(key, value)
+
+
 APPROVAL_TIMING_MS = {
     "displayed": 1_000,
     "decided": 1_200,
@@ -175,6 +200,7 @@ def _validated_preflight_receipt(
         "provider_tag",
         "required_parameters",
         "compatible_endpoint_count",
+        "require_parameters",
         "route_probe",
         "route_probe_model",
     }
@@ -192,6 +218,7 @@ def _validated_preflight_receipt(
         or not isinstance(compatible_endpoint_count, int)
         or isinstance(compatible_endpoint_count, bool)
         or compatible_endpoint_count <= 0
+        or receipt.get("require_parameters") is not settings.require_parameters
         or receipt.get("route_probe") != "generic_tool_call_ok"
         or receipt.get("route_probe_model") not in settings.accepted_models
     ):
@@ -217,6 +244,25 @@ def _implementation_digests() -> dict[str, str]:
         str(path.relative_to(project_root)): sha256_file(path)
         for path in IMPLEMENTATION_PATHS
     }
+
+
+def _validate_owner_authorization(
+    authorized_digest: str, path: Path = PREREGISTRATION_PATH
+) -> None:
+    if len(authorized_digest) != 64 or any(
+        character not in "0123456789abcdef" for character in authorized_digest
+    ):
+        raise ValueError("invalid owner-authorized manifest digest")
+    manifest = json.loads(path.read_text())
+    if not isinstance(manifest, dict):
+        raise ValueError("invalid preregistration manifest")
+    claimed_digest = manifest.pop("manifest_digest", None)
+    if (
+        claimed_digest != authorized_digest
+        or claimed_digest != digest("orderseal-preregistration-v1", manifest)
+        or manifest.get("implementation_digests") != _implementation_digests()
+    ):
+        raise ValueError("owner authorization does not match the frozen implementation")
 
 
 def _request_structured_claim(
@@ -329,6 +375,7 @@ def _execution_failed(outcome: AgentOutcome) -> bool:
     return outcome.reason in {
         "provider_error",
         "parallel_tool_calls_rejected",
+        "malformed_reasoning_details",
         "run_timeout",
         "tool_timeout",
         "model_response_limit",
@@ -1215,7 +1262,9 @@ def main() -> None:
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--provider-eval", action="store_true", required=True)
+    parser.add_argument("--owner-authorized-manifest-digest", required=True)
     arguments = parser.parse_args()
+    _load_local_env()
     configured_base_url = os.environ.get("ORDERSEAL_BASE_URL")
     configured_model = os.environ.get("ORDERSEAL_MODEL")
     configured_provider = os.environ.get("ORDERSEAL_UPSTREAM_PROVIDER")
@@ -1227,6 +1276,7 @@ def main() -> None:
         raise ValueError(
             "ORDERSEAL_UPSTREAM_PROVIDER differs from the frozen provider route"
         )
+    _validate_owner_authorization(arguments.owner_authorized_manifest_digest)
     api_key = os.environ["ORDERSEAL_API_KEY"]
     settings = frozen_provider_settings()
     caller = OpenRouterCaller(
@@ -1234,6 +1284,7 @@ def main() -> None:
         model=PROVIDER_MODEL_ID,
         api_key=api_key,
         provider_slug=UPSTREAM_PROVIDER,
+        require_parameters=PROVIDER_REQUIRE_PARAMETERS,
     )
     preflight = caller.preflight(set(OPENROUTER_REQUIRED_PARAMETERS))
     if preflight["canonical_model"] != PROVIDER_CANONICAL_MODEL_ID:

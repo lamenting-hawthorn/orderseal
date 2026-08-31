@@ -188,3 +188,23 @@ or removed experiments remain visible.
   tool-call route probe before any evaluation output is created.
 - **Boundary:** the failed 48-row execution remains sealed and was not retried;
   a replacement scored execution requires a new frozen manifest and authorization.
+
+### Experiment 10 — Enforce sequential tool calls at the provider
+
+- **Observed:** Baidu produced 29 multi-tool responses and 19 HTTP 429 failures
+  across the sealed 48-row replacement execution.
+- **Changed:** pin `inceptron/fp4`, which passed a generic pinned tool call and
+  advertises support for `parallel_tool_calls`; send that parameter as `false`.
+- **Boundary:** local multi-tool rejection remains fail-closed. The previous 48
+  rows remain sealed, and a new scored execution requires separate authorization.
+
+### Experiment 11 — Reject Inceptron; qualify Luna on OpenAI
+
+- **Observed:** Inceptron passed 7/8 generic two-turn probes but had one provider
+  failure, so it did not meet the frozen 8/8 qualification threshold.
+- **Changed:** select `openai/gpt-5.6-luna` on the pinned `openai` endpoint. Send
+  `parallel_tool_calls=false`, preserve reasoning details, and rely on an active
+  eight-probe receipt because OpenAI does not advertise every accepted parameter.
+- **Boundary:** the earlier sealed Luna attempt remains a 48-row provider-error
+  null under its original manifest. No scored cases have run under this new
+  Luna-v1 candidate; its manifest and separate owner authorization remain mandatory.

@@ -36,7 +36,13 @@ MAX_USAGE_TOKENS = 1_000_000_000
 PROVIDER_TIMEOUT_SECONDS = 30
 RUN_TIMEOUT_SECONDS = 120
 TOOL_TIMEOUT_SECONDS = 3
-OPENROUTER_REQUIRED_PARAMETERS = ("temperature", "tool_choice", "tools")
+OPENROUTER_REQUIRED_PARAMETERS = (
+    "parallel_tool_calls",
+    "reasoning",
+    "temperature",
+    "tool_choice",
+    "tools",
+)
 OPENROUTER_HEALTH_CHECK_TOOL = {
     "type": "function",
     "function": {
@@ -741,13 +747,19 @@ def run_tool_program(
                 "parallel_tool_calls_rejected", state, trajectory, model, usage
             )
         active_budget.tool_calls += len(tool_calls)
-        messages.append(
-            {
-                "role": "assistant",
-                "content": turn.message.get("content"),
-                "tool_calls": tool_calls,
-            }
-        )
+        assistant_message = {
+            "role": "assistant",
+            "content": turn.message.get("content"),
+            "tool_calls": tool_calls,
+        }
+        messages.append(assistant_message)
+        reasoning_details = turn.message.get("reasoning_details")
+        if reasoning_details is not None:
+            if not isinstance(reasoning_details, list):
+                return _held(
+                    "malformed_reasoning_details", state, trajectory, model, usage
+                )
+            assistant_message["reasoning_details"] = reasoning_details
 
         seen_call_ids: set[str] = set()
         for tool_call in tool_calls:
@@ -925,6 +937,7 @@ class OpenRouterCaller:
         model: str,
         api_key: str,
         provider_slug: str | None = None,
+        require_parameters: bool = True,
     ) -> None:
         parsed_url = urlparse(base_url)
         if (
@@ -936,7 +949,7 @@ class OpenRouterCaller:
             or parsed_url.fragment
         ):
             raise ValueError("base_url must be absolute HTTPS")
-        if not model or not api_key:
+        if not model or not api_key or type(require_parameters) is not bool:
             raise ValueError("model and api_key are required")
         if provider_slug is not None and (
             not provider_slug
@@ -951,6 +964,7 @@ class OpenRouterCaller:
         self._model = model
         self._api_key = api_key
         self._provider_slug = provider_slug
+        self._require_parameters = require_parameters
 
     @staticmethod
     def _read_json(
@@ -1017,6 +1031,11 @@ class OpenRouterCaller:
         )
         if not isinstance(endpoints, list):
             raise ProviderError("provider_endpoint_metadata_invalid")
+        metadata_required = (
+            required_parameters
+            if self._require_parameters
+            else {"reasoning", "tool_choice", "tools"}
+        )
         compatible: list[dict[str, Any]] = []
         for endpoint in endpoints:
             if not isinstance(endpoint, dict):
@@ -1026,7 +1045,7 @@ class OpenRouterCaller:
                 endpoint.get("tag") == self._provider_slug
                 and isinstance(supported, list)
                 and all(isinstance(parameter, str) for parameter in supported)
-                and required_parameters <= set(supported)
+                and metadata_required <= set(supported)
             ):
                 compatible.append(endpoint)
         if not compatible:
@@ -1053,6 +1072,7 @@ class OpenRouterCaller:
             "provider_tag": self._provider_slug,
             "required_parameters": sorted(required_parameters),
             "compatible_endpoint_count": len(compatible),
+            "require_parameters": self._require_parameters,
             "route_probe": "generic_tool_call_ok",
             "route_probe_model": probe.model,
         }
@@ -1069,19 +1089,21 @@ class OpenRouterCaller:
             "model": self._model,
             "messages": messages,
             "temperature": 0,
+            "reasoning": {"enabled": True},
         }
         if tools:
             payload.update(
                 {
                     "tools": tools,
                     "tool_choice": "auto",
+                    "parallel_tool_calls": False,
                 }
             )
         if self._provider_slug is not None:
             payload["provider"] = {
                 "order": [self._provider_slug],
                 "allow_fallbacks": False,
-                "require_parameters": True,
+                "require_parameters": self._require_parameters,
             }
         request = urllib.request.Request(
             f"{self._base_url}/chat/completions",
