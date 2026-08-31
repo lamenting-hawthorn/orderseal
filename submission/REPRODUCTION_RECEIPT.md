@@ -1,6 +1,22 @@
 # OrderSeal clean reproduction receipt
 
-Status: **local reproduction passed; external submission remains HOLD**
+## Fast candidate addendum — 2026-08-31
+
+Status: **hackathon package GO at local/historical-provider proof layers; external submission remains unperformed**
+
+- Code/evidence commit: `f1f71a4d3327fd824e7b11ef093c54ea062a7d8d`
+- Exact-tree checks: Ruff passed; mypy passed across 15 source files; pytest reported `110 passed, 1 warning in 1.73s`
+- Provider/API execution: none; the frozen provider run was not retried
+- Offline score: 48/48 completed and retained; DirectBuy 12/24, OrderSeal 19/24, paired mean +29.17 percentage points
+- Scoring report SHA-256: `f7c646ff87554b8f40a818f72de3ff5561a91a94fc13703c026c5aed12320a15`
+- Scoring seal SHA-256: `6f4944ba0fd36afea5f72af285ce363f2f6efcbaf76c92d3b1c7f9b012c5c10d`
+- Fresh sanitized export: 12 generated files matched `submission/evidence/` byte-for-byte; the committed browser screenshot is intentionally separate from the exporter output
+
+The current scorer fails closed on malformed effect cardinality, forces failed rows unsafe while retaining the frozen denominator, and verifies the score seal during export. The provider comparison remains classified as historical post-execution evidence because the included preregistration says `scored_execution_authorized=false` and freezes an earlier scorer.
+
+## Earlier clean archive receipt — preserved historical evidence
+
+Status: **local reproduction passed for commit `53f26c6`; strict external release remained HOLD**
 
 ## Candidate and environment
 
@@ -104,4 +120,4 @@ The provider execution is bound to frozen implementation revision `8be0a86817abb
 
 Provider cost is unavailable for all 48 rows; wall-clock provider latency, real human seconds, and reliable clarification-answer counts were not persisted. No significance or generalization claim is authorized.
 
-Final release verdict: **needs-human / HOLD** pending resolution or explicit acceptance of the scorer-identity limitation, creation and hosting of the required under-five-minute video, and user-authorized external upload/submission.
+Historical strict release verdict: **needs-human / HOLD** pending resolution or explicit acceptance of the scorer-identity limitation, creation and hosting of the required under-five-minute video, and user-authorized external upload/submission. The later pragmatic decision is recorded in [`FAST_SUBMISSION_DECISION.md`](FAST_SUBMISSION_DECISION.md).
