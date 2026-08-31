@@ -1,81 +1,109 @@
 # OrderSeal
 
-OrderSeal is a synthetic procurement agent that separates model investigation
-from the final consequential action. SQLite is authoritative, a browser-only
-capability route confirms an exact prepared cart, and uncertain acknowledgements
-reconcile durable state instead of retrying blindly.
+OrderSeal is a synthetic procurement agent that keeps model investigation separate from the final consequential action. SQLite is authoritative, the browser-only confirmation route commits one exact reviewed cart, and an uncertain acknowledgement is reconciled from durable state instead of retried blindly.
 
-All catalogue data, users, money, addresses, and order effects are synthetic.
-This repository does not connect to payments or real commerce systems.
+All catalogue data, users, money, addresses, approvals, and effects are synthetic. The project has no payment or real-commerce integration.
 
-## Current status
+## Submission status
 
-Phase 1 bounded-effect slice and Phase 2's seven-tool investigation registry
-passed independent local veto reviews. One authorized live exact-SKU run reached
-`ready_for_confirmation` without exposing a confirmation capability; see
-`PHASE2_LIVE_RECEIPT.json`.
-Gate Zero passed through OpenRouter with
-`openai/gpt-5.6-luna`; see `GATE_ZERO_RECEIPT.json`. The local public-route
-Phase 3 now includes separate OrderSeal and DirectBuy registries, independent
-case-policy inputs, a query-only raw-SQLite scorer, frozen C01-C12 manifests, and
-a seeded 48-row AB/BA assignment ledger. The oracle-blind paired provider runner
-uses a fresh database and aggregate budget per assignment, binds equal pair
-parameters, retains every failure in the denominator without retry, records a
-strict model-produced claim separately from SQLite evidence, and fails closed on
-model drift. DirectBuy now receives the same request, landed pricing, policy,
-approval, mutation, provider route, and fault schedule while retaining its
-conventional direct-action boundary. A fresh independent veto passed this
-bounded runner slice. No C01-C12 provider or scored run has been executed.
+The application, frozen provider evaluation, offline score, sanitized evidence bundle, and local browser workflow are complete at the local/provider proof layers.
 
-79 local tests cover the current implementation. The suite proves a functional server-rendered
-confirmation, provenance that labels
-the browser operator as unverified rather than asserting human identity, one
-atomic stock/order effect,
-post-commit acknowledgement-loss recording, reconciliation, replay safety,
-stale-quote rejection, exact-boundary expiry, delayed-lock expiry, and
-cross-session isolation.
+- Frozen execution source: `2ef34aca3cd7c6523a7761fc4d2a0f4db42f7920`
+- Route: OpenRouter `openai/gpt-5.6-luna`, canonical `openai/gpt-5.6-luna-20260709`, pinned upstream `openai`, no fallback, temperature 0
+- Execution: 48/48 completed, 0 provider failures, denominator 48; no reruns, exclusions, or voids
+- Tests: 105 passed; one upstream Starlette/httpx deprecation warning
+- Browser: real Chromium smoke passed for input → review → human confirmation → ACK_UNKNOWN → authoritative check → verified receipt, including keyboard focus, live status, and inert untrusted markup
+- External deployment, upload, hosting, and submission: not performed
 
-## Setup
+The judge evidence index is [`submission/evidence/INDEX.md`](submission/evidence/INDEX.md). The five-minute storyboard is [`submission/DEMO_SCRIPT.md`](submission/DEMO_SCRIPT.md).
+
+## Measured comparison
+
+The frozen condition-blind scorer read only sealed raw SQLite databases and external expectations.
+
+| Condition | Safe task outcome | Case-equal macro | Duplicate | Constraint violation | Unauthorized | False success | Total tokens |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| DirectBuy | 12/24 (50.00%) | 50.00% | 0/24 | 0/24 | 0/24 | 0/24 | 77,319 |
+| OrderSeal | 19/24 (79.17%) | 79.17% | 0/24 | 0/24 | 0/24 | 0/24 | 97,067 |
+
+Paired OrderSeal-minus-DirectBuy mean difference: **+29.17 percentage points** across 24 pairs (9 OrderSeal-better, 13 ties, 2 DirectBuy-better). Cost is unavailable for all 48 rows and wall-clock latency was not persisted. These are descriptive synthetic results; no significance, generalization, real-payment, staging, or production claim is made.
+
+## Install and verify
+
+Python 3.11+ and `uv` are required.
 
 ```bash
-uv sync
-uv run pytest -q
-uv run python -m app.db reset --path orderseal.db --seed orderseal-v1
-uv run uvicorn app.main:app
-uv run python live_agent_probe.py
-uv run python phase3_feasibility_probe.py
-uv run python -m evals.run --simulated --output artifacts/<new-run-set>
-uv run python -m evals.preregister
+uv sync --extra dev
+uv run --extra dev ruff check .
+uv run --extra dev mypy app evals tools/export_submission_evidence.py
+uv run --extra dev python -m pytest -q
 ```
 
-Open `http://127.0.0.1:8000`. The local HTTP configuration intentionally omits
-the cookie `Secure` attribute so the documented local path works. Set
-`ORDERSEAL_ORIGIN` to the exact HTTPS origin in an HTTPS environment; this also
-enables secure cookies. The health endpoint is `GET /health`.
+Expected test result: `105 passed` plus one dependency deprecation warning. Three lineage tests require the immutable, git-ignored failed-provider fixture at:
 
-The browser probes use a git-ignored `.env` containing `ORDERSEAL_BASE_URL`,
-`ORDERSEAL_MODEL`, `ORDERSEAL_UPSTREAM_PROVIDER`, and `ORDERSEAL_API_KEY`.
-Never commit or paste the key into logs, issues, or chat.
+```text
+artifacts/scored-20260830-deepseek-v4-flash-0731-baidu-fp8/
+artifacts/scored-20260830-deepseek-v4-flash-0731-baidu-fp8-execution-seal.json
+```
 
-The scored runner reads `ORDERSEAL_API_KEY`; any supplied base URL and model must
-exactly match the source freeze. The current OpenRouter contract is
-`openai/gpt-5.6-luna`, canonical model `openai/gpt-5.6-luna-20260709`, upstream
-endpoint `openai`, no provider
-fallback, and temperature zero. An authenticated metadata preflight and generic
-tool-call route probe must pass before any output directory is created. Do not
-invoke `python -m evals.runner` until `preregistration-luna-v1.json` has been
-reviewed and the project owner
-separately authorizes the full 48-row run. The authorized operator must pass the
-reviewed digest with `--owner-authorized-manifest-digest`; the runner verifies
-the manifest self-hash and frozen implementation before any provider call.
+This fixture is evidence, not generated source. The clean reproduction receipt records its exact mount and verification. If it is unavailable, the other 102 source-contained tests can still run, but the missing three must be reported rather than described as passing.
 
-`evals/assignments.jsonl` is the sole denominator ledger. Do not edit it after
-the immutable preregistration freeze. Every scored
-timeout, provider error, crash, malformed output, and missing artifact will stay
-in the denominator; selective reruns are prohibited.
+## Run the browser demo
 
-## Evidence boundary
+Terminal 1:
 
-Static code, local tests, synthetic evaluation, browser demonstration, and
-deployment are distinct proof layers. Nothing here proves production payment
-safety, universal model behavior, or security completeness.
+```bash
+ORDERSEAL_EVAL_MODE=1 \
+ORDERSEAL_DB_PATH=/tmp/orderseal-demo.sqlite3 \
+ORDERSEAL_ORIGIN=http://127.0.0.1:8765 \
+uv run --extra dev uvicorn app.main:app --host 127.0.0.1 --port 8765
+```
+
+Open `http://127.0.0.1:8765`. Check “Demonstrate post-commit acknowledgement loss” to exercise the recovery path. Evaluation mode only enables the deterministic synthetic fault toggle; confirmation still requires the session cookie, exact Origin, hashed CSRF token, preparation/digest, single-use intent nonce, and stable idempotency key.
+
+Deterministic real-browser check, using the bundled Codex Playwright wrapper:
+
+```bash
+/Users/raghav/.codex/skills/playwright/scripts/playwright_cli.sh open http://127.0.0.1:8765 --headed
+/Users/raghav/.codex/skills/playwright/scripts/playwright_cli.sh run-code --filename tools/browser-smoke.js
+```
+
+Expected output ends after the scripted browser actions without an assertion error. The script verifies keyboard focus, escaped/inert untrusted markup, the ACK_UNKNOWN live region, keyboard-triggered status check, and the verified receipt.
+
+## Score the frozen run without provider access
+
+Do not invoke `evals.runner`; the provider run is frozen. Supply the existing sealed execution paths:
+
+```bash
+uv run --extra dev python -m evals.score \
+  --run-set artifacts/scored-20260831-openai-gpt-5-6-luna-qualified \
+  --execution-seal artifacts/scored-20260831-openai-gpt-5-6-luna-qualified-execution-seal.json \
+  --output artifacts/scored-20260831-openai-gpt-5-6-luna-qualified-comparison.json
+```
+
+The command verifies all 243 sealed files and all 48 ledger rows before scoring, refuses to overwrite an existing report, and emits a report plus `-seal.json`. The scorer never imports the provider runner and opens each SQLite database in query-only mode.
+
+## Re-export sanitized evidence
+
+```bash
+uv run --extra dev python tools/export_submission_evidence.py \
+  --run-set artifacts/scored-20260831-openai-gpt-5-6-luna-qualified \
+  --execution-seal artifacts/scored-20260831-openai-gpt-5-6-luna-qualified-execution-seal.json \
+  --scoring-report artifacts/scored-20260831-openai-gpt-5-6-luna-qualified-comparison.json \
+  --preregistration preregistration-luna-v1.json \
+  --output submission/evidence-reproduced
+```
+
+Representative exports contain allowlisted tool name/outcome events, sanitized receipt fields, token usage, and raw-oracle output. They exclude prompts, model prose, hidden reasoning, raw provider payloads, credentials, cookies, CSRF tokens, nonces, operation keys, and session identifiers.
+
+## Credential boundary
+
+Live provider tooling reads `ORDERSEAL_API_KEY` from a git-ignored `.env`. Never print, inspect, log, commit, or include it in an artifact. Scoring, tests, the browser demo, and evidence export do not require the key.
+
+## Limitations
+
+- Synthetic SQLite effects only; no payment, identity, delivery, or real inventory integration.
+- Local HTTP intentionally omits the cookie `Secure` attribute. Set an exact HTTPS `ORDERSEAL_ORIGIN` in an HTTPS environment to enable secure cookies.
+- No deployed, staging, production, installed-product, or external-submission proof.
+- Cost is missing for all provider rows; wall-clock latency and real human seconds were not persisted.
+- Two repeats per case support descriptive comparison only.

@@ -108,12 +108,16 @@ def test_browser_confirmation_is_functional_and_truthfully_provenanced(
 ) -> None:
     client, database_path, _clock, _application = orderseal
 
-    review_page = client.post("/demo/start")
+    review_page = client.post(
+        "/demo/start", data={"brief": "Buy two keyboards <script>unsafe()</script>"}
+    )
     assert review_page.status_code == 200
     assert "KB-ERG-001" in review_page.text
     assert "Total INR 15,000.00" in review_page.text
     assert 'action="/confirm-browser"' in review_page.text
     assert "Confirm exact synthetic order" in review_page.text
+    assert "&lt;script&gt;unsafe()&lt;/script&gt;" in review_page.text
+    assert "<script>unsafe()</script>" not in review_page.text
     set_cookie = review_page.headers["set-cookie"].lower()
     assert "secure" in set_cookie
     assert "httponly" in set_cookie
@@ -129,7 +133,7 @@ def test_browser_confirmation_is_functional_and_truthfully_provenanced(
 
     assert confirmed.status_code == 200
     assert "Verified synthetic order" in confirmed.text
-    assert "Effect source: SQLite" in confirmed.text
+    assert "Authoritative SQLite" in confirmed.text
     with db.connect(database_path) as connection:
         event = connection.execute(
             "SELECT actor, confirmation_method FROM confirmation_events"
@@ -220,9 +224,7 @@ def test_public_route_ack_loss_reconciles_one_durable_order(
             ).fetchone()[0]
             is not None
         )
-        assert (
-            connection.execute("SELECT COUNT(*) FROM fault_events").fetchone()[0] == 1
-        )
+        assert connection.execute("SELECT COUNT(*) FROM fault_events").fetchone()[0] == 1
         snapshot = connection.execute(
             """
             SELECT pi.product_id, pi.sku, pi.name, pi.quantity,
@@ -239,6 +241,86 @@ def test_public_route_ack_loss_reconciles_one_durable_order(
             "SELECT actor, confirmation_method FROM confirmation_events"
         ).fetchone()
         assert tuple(event) == ("scripted_evaluator", "evaluation_api")
+
+
+def test_browser_ack_unknown_requires_authoritative_status_check(
+    orderseal: tuple[TestClient, Path, Clock, FastAPI],
+) -> None:
+    client, database_path, _clock, _application = orderseal
+    review = client.post(
+        "/demo/start",
+        data={
+            "brief": "Buy two ergonomic keyboards safely.",
+            "simulate_ack_loss": "1",
+        },
+    )
+    parser = HiddenInputs()
+    parser.feed(review.text)
+
+    unknown = client.post(
+        "/confirm-browser",
+        data=parser.values,
+        headers={"Origin": "https://testserver"},
+    )
+
+    assert unknown.status_code == 202
+    assert "Confirmation status unknown" in unknown.text
+    assert ACK_UNKNOWN_MESSAGE in unknown.text
+    assert 'action="/check-status-browser"' in unknown.text
+    assert "order_" not in unknown.text
+    status = HiddenInputs()
+    status.feed(unknown.text)
+    reconciled = client.post(
+        "/check-status-browser",
+        data=status.values,
+        headers={"Origin": "https://testserver"},
+    )
+
+    assert reconciled.status_code == 200
+    assert "ACK_UNKNOWN reconciled from authoritative state" in reconciled.text
+    assert "Verified synthetic order" in reconciled.text
+    with db.connect(database_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM orders").fetchone()[0] == 1
+        assert (
+            connection.execute("SELECT COUNT(*) FROM fault_events").fetchone()[0] == 1
+        )
+
+
+def test_browser_receipt_failure_can_reconcile_without_retry(
+    orderseal: tuple[TestClient, Path, Clock, FastAPI],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, database_path, _clock, _application = orderseal
+    review = client.post("/demo/start")
+    confirmation = HiddenInputs()
+    confirmation.feed(review.text)
+    original_receipt = domain_module._receipt_for_order
+
+    def fail_receipt(*_args, **_kwargs) -> dict[str, object]:
+        raise RuntimeError("receipt failed")
+
+    monkeypatch.setattr(domain_module, "_receipt_for_order", fail_receipt)
+
+    unknown = client.post(
+        "/confirm-browser",
+        data=confirmation.values,
+        headers={"Origin": "https://testserver"},
+    )
+
+    assert unknown.status_code == 202
+    assert 'action="/check-status-browser"' in unknown.text
+    monkeypatch.setattr(domain_module, "_receipt_for_order", original_receipt)
+    status = HiddenInputs()
+    status.feed(unknown.text)
+    reconciled = client.post(
+        "/check-status-browser",
+        data=status.values,
+        headers={"Origin": "https://testserver"},
+    )
+    assert reconciled.status_code == 200
+    assert "ACK_UNKNOWN reconciled from authoritative state" in reconciled.text
+    with db.connect(database_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM orders").fetchone()[0] == 1
 
 
 def test_concurrent_double_click_commits_once_and_replays_same_receipt(

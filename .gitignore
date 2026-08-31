@@ -6,6 +6,7 @@ artifacts/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+.playwright-cli/
 *.egg-info/
 dist/
 tmp/

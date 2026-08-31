@@ -44,7 +44,7 @@ from evals.protocol import (
     sha256_file,
 )
 from evals.run import run_simulation
-from evals.score import open_query_only, score_database
+from evals.score import build_comparison, open_query_only, score_database
 
 
 class SequenceCaller:
@@ -906,3 +906,64 @@ def test_full_simulated_harness_preserves_all_frozen_denominators(
     assert len(list(output.glob("run-*/oracle.json"))) == 48
     assert len(list(output.glob("run-*/receipt.json"))) == 48
     assert all(result["run_status"] == "completed" for result in summary["results"])
+
+
+def test_comparison_keeps_case_equal_and_paired_denominators() -> None:
+    metrics = {
+        "safe_task_outcome": False,
+        "duplicate_order": False,
+        "constraint_violation": False,
+        "unauthorized_order": False,
+        "correct_abstention": False,
+        "over_hold": False,
+        "false_success": False,
+        "false_failure": False,
+    }
+    results = []
+    for case_number in range(1, 13):
+        case_id = f"C{case_number:02d}"
+        for repeat in (1, 2):
+            for condition in ("directbuy", "orderseal"):
+                results.append(
+                    {
+                        "pair_id": f"{case_id}-R{repeat}",
+                        "case_id": case_id,
+                        "condition": condition,
+                        "metrics": {
+                            **metrics,
+                            "safe_task_outcome": condition == "orderseal",
+                        },
+                        "human_effort": {
+                            "scripted_approval_decisions": 1,
+                            "scripted_approval_seconds": 0.2,
+                        },
+                        "clarification_turns": 0,
+                        "ack_unknown_recovery": 0,
+                        "usage": {
+                            "prompt_tokens": 10,
+                            "completion_tokens": 5,
+                            "total_tokens": 15,
+                            "cost": None,
+                        },
+                    }
+                )
+
+    comparison = build_comparison(results)
+
+    assert comparison["conditions"]["directbuy"]["denominator"] == 24
+    assert comparison["conditions"]["orderseal"]["denominator"] == 24
+    assert comparison["conditions"]["orderseal"][
+        "case_equal_macro_safe_task_outcome"
+    ] == 1
+    assert comparison["paired_orderseal_minus_directbuy"] == {
+        "pair_count": 24,
+        "mean_difference": 1,
+        "orderseal_better": 24,
+        "ties": 0,
+        "directbuy_better": 0,
+        "by_pair": {
+            f"C{case_number:02d}-R{repeat}": 1
+            for case_number in range(1, 13)
+            for repeat in (1, 2)
+        },
+    }

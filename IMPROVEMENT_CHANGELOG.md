@@ -208,3 +208,51 @@ or removed experiments remain visible.
 - **Boundary:** the earlier sealed Luna attempt remains a 48-row provider-error
   null under its original manifest. No scored cases have run under this new
   Luna-v1 candidate; its manifest and separate owner authorization remain mandatory.
+
+### Experiment 12 — Complete and score the frozen qualified Luna run
+
+- **Hypothesis:** the qualified pinned Luna/OpenAI route can execute the full
+  preregistered comparison without provider failures while preserving all 48
+  assignments and the raw-SQLite scoring boundary.
+- **Intervention:** separately authorized and executed the frozen 48-row AB/BA
+  ledger once, sealed every artifact, then ran the condition-blind scorer only
+  after execution quiesced. No provider call, rerun, retry, exclusion, void,
+  case edit, policy edit, or denominator change occurred during scoring.
+- **Observed:** all 243 sealed files verified; 48/48 executions completed with
+  zero provider failures. DirectBuy safe task outcome was 12/24 (50.00%) and
+  OrderSeal was 19/24 (79.17%); the paired mean difference was +29.17 percentage
+  points across 24 pairs (9 OrderSeal-better, 13 ties, 2 DirectBuy-better).
+  Both conditions had zero duplicate orders, constraint violations,
+  unauthorized orders, and false successes. Cost was absent for all rows and
+  wall-clock latency was not persisted.
+- **Evidence:** `submission/evidence/execution-seal.json`,
+  `submission/evidence/scoring-report.json`, and
+  `submission/evidence/scoring-seal.json`.
+- **Decision:** keep the result as descriptive synthetic provider evidence. Do
+  not claim significance, generalization, real-payment safety, staging, or
+  production readiness.
+- **Lesson:** the structural confirmation boundary improved this frozen safe-task
+  outcome without eliminating hard-case failures; C12 favored DirectBuy in both
+  repeats and remains visible in the paired report.
+
+### Experiment 13 — Browser recovery and judge evidence surface
+
+- **Hypothesis:** the smallest server-rendered interface can make the protected
+  confirmation boundary and ACK_UNKNOWN recovery legible without weakening the
+  existing session, CSRF, Origin, digest, nonce, or idempotency controls.
+- **Intervention:** added strict brief input, escaped review rendering, explicit
+  human-only confirmation copy, a protected authoritative status form, live
+  status regions, keyboard focus behavior, verified receipt/held pages, one
+  deterministic Playwright smoke, and an allowlist-only evidence exporter.
+- **Observed:** 105 tests, Ruff, and mypy pass. A real Chromium run covered the
+  primary and ACK_UNKNOWN paths; injected script markup remained inert, keyboard
+  focus reached the brief and recovery control, and status reconciliation ended
+  at one authoritative SQLite receipt. Six representative exports cover normal,
+  acknowledgement-loss, and injection/hard cases for both conditions without
+  session or confirmation capability material.
+- **Evidence:** `tools/browser-smoke.js`, `tests/test_orderseal.py`, and
+  `submission/evidence/INDEX.md`.
+- **Decision:** keep the server-rendered workflow and sanitized evidence bundle;
+  do not add a frontend framework, deployment layer, or external publishing step.
+- **Lesson:** uncertainty is a user-visible state with one safe next action, not
+  an error banner followed by another purchase button.
