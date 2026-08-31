@@ -339,6 +339,7 @@ def test_catalogue_description_is_typed_untrusted_tool_data(
     tool_message = messages_after_inspection[-1]
     assert tool_message["role"] == "tool"
     evidence = json.loads(tool_message["content"])
+    assert evidence["evidence"]["catalogue_text_untrusted"] is True
     description = evidence["evidence"]["untrusted_description"]
     assert description["untrusted"] is True
     assert description["source"] == "synthetic_catalogue"

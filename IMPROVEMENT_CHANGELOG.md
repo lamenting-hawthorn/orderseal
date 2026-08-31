@@ -240,13 +240,14 @@ or removed experiments remain visible.
 - **Hypothesis:** the smallest server-rendered interface can make the protected
   confirmation boundary and ACK_UNKNOWN recovery legible without weakening the
   existing session, CSRF, Origin, digest, nonce, or idempotency controls.
-- **Intervention:** added strict brief input, escaped review rendering, explicit
+- **Intervention:** added one explicitly supported brief, fail-closed rejection
+  before preparation for any other intent, escaped review rendering, explicit
   human-only confirmation copy, a protected authoritative status form, live
   status regions, keyboard focus behavior, verified receipt/held pages, one
   deterministic Playwright smoke, and an allowlist-only evidence exporter.
-- **Observed:** 105 tests, Ruff, and mypy pass. A real Chromium run covered the
-  primary and ACK_UNKNOWN paths; injected script markup remained inert, keyboard
-  focus reached the brief and recovery control, and status reconciliation ended
+- **Observed:** 108 tests, Ruff, and mypy pass. A real Chromium run covered the
+  primary and ACK_UNKNOWN paths; keyboard focus reached the constrained brief
+  selector and recovery control, and status reconciliation ended
   at one authoritative SQLite receipt. Six representative exports cover normal,
   acknowledgement-loss, and injection/hard cases for both conditions without
   session or confirmation capability material.

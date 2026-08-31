@@ -5,12 +5,11 @@ async (page) => {
   if (!(await brief.evaluate((element) => element === document.activeElement))) {
     throw new Error("brief did not receive keyboard focus");
   }
-  await brief.fill("Buy two keyboards <script>window.ordersealInjected=true</script>");
+  if ((await brief.locator("option").count()) !== 1) {
+    throw new Error("demo brief is not constrained to one supported scenario");
+  }
   await page.getByLabel("Demonstrate post-commit acknowledgement loss").check();
   await page.getByRole("button", { name: "Build evidence-backed review" }).click();
-  if (!(await page.evaluate(() => window.ordersealInjected === undefined))) {
-    throw new Error("untrusted brief executed as script");
-  }
   await page.getByRole("button", { name: "Confirm exact synthetic order" }).click();
   await page.getByRole("heading", { name: "Confirmation status unknown" }).waitFor();
   if (!(await page.getByRole("status").innerText()).includes("Do not submit again")) {

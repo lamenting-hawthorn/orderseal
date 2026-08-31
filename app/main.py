@@ -27,6 +27,9 @@ from app.domain import (
 )
 
 SESSION_COOKIE = "orderseal_session"
+SUPPORTED_DEMO_BRIEF = (
+    "Buy two ergonomic keyboards under INR 18,000, delivered within five days."
+)
 ACK_UNKNOWN_MESSAGE = (
     "Confirmation status is unknown. We are checking the authoritative order record. "
     "Do not submit again."
@@ -71,7 +74,11 @@ def create_app(
     application.state.database_path = str(database_path)
     application.state.clock = clock or (lambda: int(time.time()))
     application.state.eval_mode = eval_mode
-    application.state.allowed_origins = allowed_origins or {"http://127.0.0.1:8000"}
+    application.state.allowed_origins = (
+        allowed_origins
+        if allowed_origins is not None
+        else {"http://127.0.0.1:8000"}
+    )
     application.state.secure_cookies = secure_cookies
 
     @application.exception_handler(DomainError)
@@ -349,7 +356,7 @@ def _parse_confirmation_form(body: bytes) -> tuple[ConfirmationRequest, str]:
 
 def _parse_start_form(body: bytes) -> tuple[str, bool]:
     if not body:
-        return "Synthetic demo brief", False
+        return SUPPORTED_DEMO_BRIEF, False
     if len(body) > 4_096:
         raise DomainError("brief_invalid", 400)
     try:
@@ -368,10 +375,14 @@ def _parse_start_form(body: bytes) -> tuple[str, bool]:
             ord(character) < 32 and character not in "\n\r\t" for character in brief
         ):
             raise ValueError
+        if brief != SUPPORTED_DEMO_BRIEF:
+            raise DomainError("brief_unsupported", 400)
         fault_value = values.get("simulate_ack_loss", [None])[0]
         if fault_value not in {None, "1"}:
             raise ValueError
         simulate_ack_loss = fault_value == "1"
+    except DomainError:
+        raise
     except (UnicodeDecodeError, ValueError):
         raise DomainError("brief_invalid", 400) from None
     return brief, simulate_ack_loss
@@ -420,9 +431,9 @@ def _home_page(fault_toggle: str) -> str:
         f"""<p class="eyebrow">Synthetic checkout safety demo</p><h1>OrderSeal</h1>
 <p>Describe the constrained purchase. The model-facing workflow may investigate and prepare, but only this browser can confirm the exact reviewed order.</p>
 <form method="post" action="/demo/start"><label for="brief">Procurement brief</label>
-<textarea id="brief" name="brief" rows="5" maxlength="500" required autofocus>Buy two ergonomic keyboards under INR 18,000, delivered within five days.</textarea>
+<select id="brief" name="brief" required autofocus><option>{html.escape(SUPPORTED_DEMO_BRIEF)}</option></select>
 {fault_toggle}<button type="submit">Build evidence-backed review</button></form>
-<p class="note">Synthetic catalogue and money only. No payment or real commerce connection.</p>""",
+<p class="note">This local demo supports the one brief shown above. Synthetic catalogue and money only; no payment or real commerce connection.</p>""",
     )
 
 
@@ -515,7 +526,7 @@ def _held_page(reason: str) -> str:
 def _document(title: str, body: str) -> str:
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,"><title>{html.escape(title)}</title>
-<style>:root{{color-scheme:light;--ink:#16241f;--muted:#53645d;--paper:#f4f0e7;--card:#fffdf8;--green:#176b52;--line:#d8d2c4;--warn:#fff0c7}}*{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font:17px/1.55 system-ui,sans-serif}}main{{width:min(760px,calc(100% - 32px));margin:5vh auto;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:clamp(24px,5vw,52px);box-shadow:0 18px 60px #243b3020}}h1{{font:700 clamp(2.2rem,7vw,4.8rem)/.95 Georgia,serif;margin:.2em 0 .35em}}h2{{font-size:1.1rem}}.eyebrow{{color:var(--green);font-weight:800;letter-spacing:.09em;text-transform:uppercase}}label{{display:block;font-weight:750;margin:.8rem 0 .35rem}}textarea{{width:100%;padding:14px;border:1px solid #8d9a94;border-radius:10px;font:inherit}}button{{margin-top:1rem;border:0;border-radius:999px;background:var(--green);color:white;padding:.8rem 1.2rem;font:700 1rem system-ui;cursor:pointer}}button:focus-visible,a:focus-visible,textarea:focus-visible,input:focus-visible,summary:focus-visible{{outline:4px solid #e6a700;outline-offset:3px}}.check{{font-weight:500}}.check input{{margin-right:.45rem}}.note{{color:var(--muted);font-size:.92rem}}.brief,.warning,.ok{{padding:14px;border-radius:10px}}.brief{{background:#eef1eb}}.warning{{background:var(--warn);border-left:5px solid #bd6b00}}.ok{{background:#e4f4ec;color:#0f5a43}}table{{width:100%;border-collapse:collapse;display:block;overflow-x:auto}}th,td{{padding:10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}}.total{{font:700 1.5rem Georgia,serif}}code{{overflow-wrap:anywhere}}dt{{font-weight:750}}dd{{margin:0 0 1rem}}</style></head>
+<style>:root{{color-scheme:light;--ink:#16241f;--muted:#53645d;--paper:#f4f0e7;--card:#fffdf8;--green:#176b52;--line:#d8d2c4;--warn:#fff0c7}}*{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font:17px/1.55 system-ui,sans-serif}}main{{width:min(760px,calc(100% - 32px));margin:5vh auto;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:clamp(24px,5vw,52px);box-shadow:0 18px 60px #243b3020}}h1{{font:700 clamp(2.2rem,7vw,4.8rem)/.95 Georgia,serif;margin:.2em 0 .35em}}h2{{font-size:1.1rem}}.eyebrow{{color:var(--green);font-weight:800;letter-spacing:.09em;text-transform:uppercase}}label{{display:block;font-weight:750;margin:.8rem 0 .35rem}}select{{width:100%;padding:14px;border:1px solid #8d9a94;border-radius:10px;background:white;font:inherit}}button{{margin-top:1rem;border:0;border-radius:999px;background:var(--green);color:white;padding:.8rem 1.2rem;font:700 1rem system-ui;cursor:pointer}}button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{{outline:4px solid #e6a700;outline-offset:3px}}.check{{font-weight:500}}.check input{{margin-right:.45rem}}.note{{color:var(--muted);font-size:.92rem}}.brief,.warning,.ok{{padding:14px;border-radius:10px}}.brief{{background:#eef1eb}}.warning{{background:var(--warn);border-left:5px solid #bd6b00}}.ok{{background:#e4f4ec;color:#0f5a43}}table{{width:100%;border-collapse:collapse;display:block;overflow-x:auto}}th,td{{padding:10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}}.total{{font:700 1.5rem Georgia,serif}}code{{overflow-wrap:anywhere}}dt{{font-weight:750}}dd{{margin:0 0 1rem}}</style></head>
 <body><main id="main" tabindex="-1">{body}</main><script>document.getElementById('main').focus({{preventScroll:true}})</script></body></html>"""
 
 

@@ -14,7 +14,7 @@ from app import db
 from app import domain as domain_module
 from app import main as main_module
 from app.domain import DomainError, confirm_order, digest, preparation_payload
-from app.main import ACK_UNKNOWN_MESSAGE, create_app
+from app.main import ACK_UNKNOWN_MESSAGE, SUPPORTED_DEMO_BRIEF, create_app
 
 
 class Clock:
@@ -108,16 +108,13 @@ def test_browser_confirmation_is_functional_and_truthfully_provenanced(
 ) -> None:
     client, database_path, _clock, _application = orderseal
 
-    review_page = client.post(
-        "/demo/start", data={"brief": "Buy two keyboards <script>unsafe()</script>"}
-    )
+    review_page = client.post("/demo/start", data={"brief": SUPPORTED_DEMO_BRIEF})
     assert review_page.status_code == 200
     assert "KB-ERG-001" in review_page.text
     assert "Total INR 15,000.00" in review_page.text
     assert 'action="/confirm-browser"' in review_page.text
     assert "Confirm exact synthetic order" in review_page.text
-    assert "&lt;script&gt;unsafe()&lt;/script&gt;" in review_page.text
-    assert "<script>unsafe()</script>" not in review_page.text
+    assert SUPPORTED_DEMO_BRIEF in review_page.text
     set_cookie = review_page.headers["set-cookie"].lower()
     assert "secure" in set_cookie
     assert "httponly" in set_cookie
@@ -140,6 +137,23 @@ def test_browser_confirmation_is_functional_and_truthfully_provenanced(
         ).fetchone()
         assert tuple(event) == ("browser_operator_unverified", "browser_ui")
         assert connection.execute("SELECT COUNT(*) FROM orders").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize(
+    "brief",
+    ["Do not buy anything.", "Buy 100 laptops under INR 1.", "<script>unsafe()</script>"],
+)
+def test_browser_rejects_briefs_it_cannot_execute(
+    orderseal: tuple[TestClient, Path, Clock, FastAPI], brief: str
+) -> None:
+    client, database_path, _clock, _application = orderseal
+
+    response = client.post("/demo/start", data={"brief": brief})
+
+    assert response.status_code == 400
+    assert response.json() == {"error": "brief_unsupported"}
+    with db.connect(database_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM preparations").fetchone()[0] == 0
 
 
 def test_documented_http_local_route_retains_session(tmp_path: Path) -> None:
@@ -250,7 +264,7 @@ def test_browser_ack_unknown_requires_authoritative_status_check(
     review = client.post(
         "/demo/start",
         data={
-            "brief": "Buy two ergonomic keyboards safely.",
+            "brief": SUPPORTED_DEMO_BRIEF,
             "simulate_ack_loss": "1",
         },
     )

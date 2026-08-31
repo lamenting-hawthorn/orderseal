@@ -8,18 +8,18 @@ All catalogue data, users, money, addresses, approvals, and effects are syntheti
 
 The application, frozen provider evaluation, offline score, sanitized evidence bundle, and local browser workflow are complete at the local/provider proof layers.
 
-- Frozen execution source: `2ef34aca3cd7c6523a7761fc4d2a0f4db42f7920`
+- Frozen implementation revision: `8be0a86817abbb7132b96a77e647e5bcb927dfb3`; commit `2ef34aca3cd7c6523a7761fc4d2a0f4db42f7920` adds only its preregistration record
 - Route: OpenRouter `openai/gpt-5.6-luna`, canonical `openai/gpt-5.6-luna-20260709`, pinned upstream `openai`, no fallback, temperature 0
 - Execution: 48/48 completed, 0 provider failures, denominator 48; no reruns, exclusions, or voids
-- Tests: 105 passed; one upstream Starlette/httpx deprecation warning
-- Browser: real Chromium smoke passed for input → review → human confirmation → ACK_UNKNOWN → authoritative check → verified receipt, including keyboard focus, live status, and inert untrusted markup
+- Tests: 108 passed; one upstream Starlette/httpx deprecation warning
+- Browser: real Chromium smoke passed for the single supported brief → review → human confirmation → ACK_UNKNOWN → authoritative check → verified receipt, including keyboard focus and live status
 - External deployment, upload, hosting, and submission: not performed
 
 The judge evidence index is [`submission/evidence/INDEX.md`](submission/evidence/INDEX.md). The five-minute storyboard is [`submission/DEMO_SCRIPT.md`](submission/DEMO_SCRIPT.md).
 
 ## Measured comparison
 
-The frozen condition-blind scorer read only sealed raw SQLite databases and external expectations.
+The condition-blind effect oracle reads sealed raw SQLite databases and external expectations. Report metadata also reads sealed receipts, usage, and allowlisted trajectory phases.
 
 | Condition | Safe task outcome | Case-equal macro | Duplicate | Constraint violation | Unauthorized | False success | Total tokens |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -39,7 +39,7 @@ uv run --extra dev mypy app evals tools/export_submission_evidence.py
 uv run --extra dev python -m pytest -q
 ```
 
-Expected test result: `105 passed` plus one dependency deprecation warning. Three lineage tests require the immutable, git-ignored failed-provider fixture at:
+Expected test result: `108 passed` plus one dependency deprecation warning. Three lineage tests require the immutable, git-ignored failed-provider fixture at:
 
 ```text
 artifacts/scored-20260830-deepseek-v4-flash-0731-baidu-fp8/
@@ -59,7 +59,7 @@ ORDERSEAL_ORIGIN=http://127.0.0.1:8765 \
 uv run --extra dev uvicorn app.main:app --host 127.0.0.1 --port 8765
 ```
 
-Open `http://127.0.0.1:8765`. Check “Demonstrate post-commit acknowledgement loss” to exercise the recovery path. Evaluation mode only enables the deterministic synthetic fault toggle; confirmation still requires the session cookie, exact Origin, hashed CSRF token, preparation/digest, single-use intent nonce, and stable idempotency key.
+Open `http://127.0.0.1:8765`. The UI intentionally exposes one supported synthetic brief; unsupported intent is rejected before preparation. Check “Demonstrate post-commit acknowledgement loss” to exercise the recovery path. Evaluation mode also exposes scripted test APIs, so bind it to loopback only and never deploy it. Browser confirmation still requires the session cookie, exact Origin, hashed CSRF token, preparation/digest, single-use intent nonce, and stable idempotency key.
 
 Deterministic real-browser check, using the bundled Codex Playwright wrapper:
 
@@ -68,7 +68,7 @@ Deterministic real-browser check, using the bundled Codex Playwright wrapper:
 /Users/raghav/.codex/skills/playwright/scripts/playwright_cli.sh run-code --filename tools/browser-smoke.js
 ```
 
-Expected output ends after the scripted browser actions without an assertion error. The script verifies keyboard focus, escaped/inert untrusted markup, the ACK_UNKNOWN live region, keyboard-triggered status check, and the verified receipt.
+Expected output ends after the scripted browser actions without an assertion error. The script verifies a constrained brief selector, keyboard focus, the ACK_UNKNOWN live region, keyboard-triggered status check, and the verified receipt. Unit tests separately verify that unsupported and markup-bearing briefs are rejected before any preparation row is written.
 
 ## Score the frozen run without provider access
 
@@ -81,7 +81,7 @@ uv run --extra dev python -m evals.score \
   --output artifacts/scored-20260831-openai-gpt-5-6-luna-qualified-comparison.json
 ```
 
-The command verifies all 243 sealed files and all 48 ledger rows before scoring, refuses to overwrite an existing report, and emits a report plus `-seal.json`. The scorer never imports the provider runner and opens each SQLite database in query-only mode.
+The command verifies all 243 sealed files and all 48 ledger rows before scoring, refuses to overwrite an existing report, and emits a report plus `-seal.json`. The scorer never imports the provider runner and opens each SQLite database in query-only mode. The raw run set is immutable, git-ignored evidence and is not included in the sanitized public bundle; exact rescoring therefore requires the separately controlled evidence mount recorded in the reproduction receipt.
 
 ## Re-export sanitized evidence
 
@@ -106,4 +106,6 @@ Live provider tooling reads `ORDERSEAL_API_KEY` from a git-ignored `.env`. Never
 - Local HTTP intentionally omits the cookie `Secure` attribute. Set an exact HTTPS `ORDERSEAL_ORIGIN` in an HTTPS environment to enable secure cookies.
 - No deployed, staging, production, installed-product, or external-submission proof.
 - Cost is missing for all provider rows; wall-clock latency and real human seconds were not persisted.
+- Scripted clarification-answer delivery was not persisted as a reliable human-effort field; do not interpret the report's zero trajectory-phase count as zero human interaction.
+- The preregistration freezes scorer digest `d7285215…`; the appended post-execution scorer is `526cfcb7…`. Headline effect metrics match the earlier frozen score, but strict exact-scorer preregistration compliance remains a HOLD.
 - Two repeats per case support descriptive comparison only.

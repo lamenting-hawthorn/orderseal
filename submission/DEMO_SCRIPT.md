@@ -24,7 +24,7 @@ Open [`../IMPROVEMENT_CHANGELOG.md`](../IMPROVEMENT_CHANGELOG.md) at the final e
 
 ## 4:05–4:40 — Reproduction and limits
 
-Show the README verification commands and clean reproduction receipt. End with: “105 tests, a deterministic real-browser smoke, sealed offline scoring, and sanitized evidence pass locally. Deployment, real payments, external hosting, and submission remain human-controlled and unproven.”
+Show the README verification commands and clean reproduction receipt. End with: “108 tests, a deterministic real-browser smoke, append-sealed offline scoring, and sanitized evidence pass locally. Strict preregistered-scorer identity, deployment, real payments, external hosting, and submission remain unproven.”
 
 ## Recording checklist
 
