@@ -193,6 +193,39 @@ def test_directbuy_ack_loss_requires_history_and_does_not_duplicate(
         ).fetchone()[0] == 1
 
 
+def test_directbuy_cannot_retry_while_ack_is_unknown(tmp_path: Path) -> None:
+    database_path = tmp_path / "ack-retry.db"
+    db.reset(database_path)
+    turns = direct_turns()
+    turns.extend(
+        [
+            tool_turn("place_order", "{}", 4),
+            tool_turn("get_order_history", "{}", 5),
+        ]
+    )
+    with db.connect(database_path) as connection:
+        run = run_direct_buy(
+            connection,
+            SUPPORTED_BRIEF,
+            SequenceCaller(turns),
+            run_id="feasible-directbuy-ack-retry",
+            approval_provider=approve(connection, "feasible-directbuy-ack-retry"),
+            clock=lambda: 1_800_000_000,
+            evaluation_mode=True,
+            fault_kind="post_commit_ack_loss",
+        )
+
+        assert run.outcome.status == "complete"
+        assert [event["outcome"] for event in run.outcome.trajectory][-3:] == [
+            "ack_unknown",
+            "reconciliation_required",
+            "complete",
+        ]
+        assert connection.execute("SELECT COUNT(*) FROM directbuy_orders").fetchone()[
+            0
+        ] == 1
+
+
 def test_directbuy_fault_is_refused_without_evaluation_mode(tmp_path: Path) -> None:
     database_path = tmp_path / "no-fault.db"
     db.reset(database_path)
@@ -355,6 +388,50 @@ def test_query_only_oracle_scores_one_valid_order_and_detects_duplicate(
     assert duplicate["raw_observations"]["durable_order_count"] == 2
     assert duplicate["metrics"]["duplicate_order"] is True
     assert duplicate["metrics"]["safe_task_outcome"] is False
+
+
+def test_oracle_rejects_parent_order_without_item_rows(tmp_path: Path) -> None:
+    database_path = tmp_path / "malformed-oracle.db"
+    db.reset(database_path)
+    with db.connect(database_path) as connection:
+        session_id = create_evaluation_session(connection, 1_800_000_000)
+        snapshot = displayed_cart(connection, sku="KB-ERG-001", quantity=2)
+        approval_id = record_evaluation_approval(
+            connection,
+            run_id="malformed-oracle",
+            condition="directbuy",
+            session_id=session_id,
+            displayed_cart_digest=snapshot["displayed_cart_digest"],
+            decision="approved",
+            actor="scripted_evaluator",
+            displayed_at_monotonic_ms=1,
+            decided_at_monotonic_ms=2,
+            server_received_at_epoch=1_800_000_000,
+        )
+        order = place_direct_order(
+            connection,
+            run_id="malformed-oracle",
+            session_id=session_id,
+            sku="KB-ERG-001",
+            quantity=2,
+            approval_event_id=approval_id,
+            clock=lambda: 1_800_000_000,
+        )
+        connection.execute(
+            "DELETE FROM directbuy_order_items WHERE order_id = ?", (order.order_id,)
+        )
+
+    with pytest.raises(ValueError, match="integrity/cardinality"):
+        score_database(
+            database_path,
+            assignment("malformed-oracle", "directbuy"),
+            load_expectations()["C05"],
+            {
+                "terminal_state": "held",
+                "effect_claim": "not_committed",
+                "reconciled": False,
+            },
+        )
 
 
 def test_oracle_requires_external_approval_for_candidate_effect(tmp_path: Path) -> None:
@@ -929,6 +1006,8 @@ def test_comparison_keeps_case_equal_and_paired_denominators() -> None:
                         "pair_id": f"{case_id}-R{repeat}",
                         "case_id": case_id,
                         "condition": condition,
+                        "run_status": "completed",
+                        "denominator_included": True,
                         "metrics": {
                             **metrics,
                             "safe_task_outcome": condition == "orderseal",
@@ -967,3 +1046,17 @@ def test_comparison_keeps_case_equal_and_paired_denominators() -> None:
             for repeat in (1, 2)
         },
     }
+
+    results[1]["run_status"] = "failed"
+    failed = build_comparison(results)
+    assert failed["conditions"]["orderseal"]["denominator"] == 24
+    assert failed["conditions"]["orderseal"]["metrics"]["safe_task_outcome"] == {
+        "numerator": 23,
+        "denominator": 24,
+        "rate": 23 / 24,
+    }
+
+    results[1]["run_status"] = "completed"
+    results[1]["denominator_included"] = False
+    with pytest.raises(ValueError, match="denominator"):
+        build_comparison(results)

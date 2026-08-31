@@ -6,20 +6,20 @@ All catalogue data, users, money, addresses, approvals, and effects are syntheti
 
 ## Submission status
 
-The application, frozen provider evaluation, offline score, sanitized evidence bundle, and local browser workflow are complete at the local/provider proof layers.
+The application and local browser workflow are submission-ready at the local proof layer. A historical sealed provider run has a hardened offline score and sanitized evidence bundle; it is useful descriptive evidence, but is not claimed as a strictly authorized preregistered evaluation.
 
-- Frozen implementation revision: `8be0a86817abbb7132b96a77e647e5bcb927dfb3`; commit `2ef34aca3cd7c6523a7761fc4d2a0f4db42f7920` adds only its preregistration record
+- Historical provider-run implementation revision: `8be0a86817abbb7132b96a77e647e5bcb927dfb3`; commit `2ef34aca3cd7c6523a7761fc4d2a0f4db42f7920` adds only its preregistration record
 - Route: OpenRouter `openai/gpt-5.6-luna`, canonical `openai/gpt-5.6-luna-20260709`, pinned upstream `openai`, no fallback, temperature 0
-- Execution: 48/48 completed, 0 provider failures, denominator 48; no reruns, exclusions, or voids
-- Tests: 108 passed; one upstream Starlette/httpx deprecation warning
-- Browser: real Chromium smoke passed for the single supported brief → review → human confirmation → ACK_UNKNOWN → authoritative check → verified receipt, including keyboard focus and live status
+- Historical execution: 48/48 completed, 0 provider failures, denominator 48; no provider reruns, exclusions, or voids
+- Tests: 110 passed; one upstream Starlette/httpx deprecation warning
+- Browser: real Chromium smoke passed for the single supported brief → review → human confirmation → ACK_UNKNOWN → authoritative check → verified receipt, including keyboard focus and live status ([screenshot](submission/evidence/browser-ack-reconciled.png))
 - External deployment, upload, hosting, and submission: not performed
 
-The judge evidence index is [`submission/evidence/INDEX.md`](submission/evidence/INDEX.md). The five-minute storyboard is [`submission/DEMO_SCRIPT.md`](submission/DEMO_SCRIPT.md).
+The pragmatic release decision is [`submission/FAST_SUBMISSION_DECISION.md`](submission/FAST_SUBMISSION_DECISION.md). The judge evidence index is [`submission/evidence/INDEX.md`](submission/evidence/INDEX.md), and the five-minute storyboard is [`submission/DEMO_SCRIPT.md`](submission/DEMO_SCRIPT.md).
 
 ## Measured comparison
 
-The condition-blind effect oracle reads sealed raw SQLite databases and external expectations. Report metadata also reads sealed receipts, usage, and allowlisted trajectory phases.
+The condition-blind effect oracle reads sealed raw SQLite databases and external expectations. It now rejects malformed parent/child effect data, retains every frozen denominator row, and counts failed runs as unsafe. Report metadata also reads sealed receipts, usage, and allowlisted trajectory phases. This is a post-execution descriptive comparison of the historical run, not a strict preregistration-compliance claim.
 
 | Condition | Safe task outcome | Case-equal macro | Duplicate | Constraint violation | Unauthorized | False success | Total tokens |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -39,14 +39,14 @@ uv run --extra dev mypy app evals tools/export_submission_evidence.py
 uv run --extra dev python -m pytest -q
 ```
 
-Expected test result: `108 passed` plus one dependency deprecation warning. Three lineage tests require the immutable, git-ignored failed-provider fixture at:
+Expected test result: `110 passed` plus one dependency deprecation warning. Three lineage tests require the immutable, git-ignored failed-provider fixture at:
 
 ```text
 artifacts/scored-20260830-deepseek-v4-flash-0731-baidu-fp8/
 artifacts/scored-20260830-deepseek-v4-flash-0731-baidu-fp8-execution-seal.json
 ```
 
-This fixture is evidence, not generated source. The clean reproduction receipt records its exact mount and verification. If it is unavailable, the other 102 source-contained tests can still run, but the missing three must be reported rather than described as passing.
+This fixture is evidence, not generated source. The clean reproduction receipt records its exact mount and verification. If it is unavailable, the source-contained subset can still run, but the missing lineage tests must be reported rather than described as passing.
 
 ## Run the browser demo
 
@@ -107,5 +107,6 @@ Live provider tooling reads `ORDERSEAL_API_KEY` from a git-ignored `.env`. Never
 - No deployed, staging, production, installed-product, or external-submission proof.
 - Cost is missing for all provider rows; wall-clock latency and real human seconds were not persisted.
 - Scripted clarification-answer delivery was not persisted as a reliable human-effort field; do not interpret the report's zero trajectory-phase count as zero human interaction.
-- The preregistration freezes scorer digest `d7285215…`; the appended post-execution scorer is `526cfcb7…`. Headline effect metrics match the earlier frozen score, but strict exact-scorer preregistration compliance remains a HOLD.
+- The preregistration records `scored_execution_authorized=false` and freezes scorer digest `d7285215…`; the hardened post-execution scorer is `34f7b24c…`. The headline effect metrics are unchanged, but strict authorization, provenance, and exact-scorer preregistration compliance remain a HOLD.
+- The no-retry guard and scorer hardening postdate the provider run. The provider comparison therefore describes the historical frozen implementation, while current-code behavior is established by local tests and browser evidence.
 - Two repeats per case support descriptive comparison only.

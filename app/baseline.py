@@ -332,6 +332,11 @@ def _directbuy_program(
     def place_order(
         context: ToolContext, _arguments: BaseModel
     ) -> dict[str, object]:
+        if runtime.awaiting_reconciliation:
+            return {
+                "status": "reconciliation_required",
+                "instruction": "check_order_history_before_any_retry",
+            }
         if context.state.phase != "cart_set" or context.state.cart is None:
             return {"status": "held", "reason": "cart_required"}
         sku = context.state.cart.get("sku")

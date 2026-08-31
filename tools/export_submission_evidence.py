@@ -8,6 +8,7 @@ from typing import Any
 
 from app.domain import canonical_json
 from evals.protocol import sha256_file
+from evals.score import verify_execution_seal
 
 
 REPRESENTATIVES = {
@@ -50,24 +51,52 @@ def export_evidence(
 ) -> None:
     if output.exists():
         raise FileExistsError(f"refusing to overwrite evidence directory: {output}")
-    output.mkdir(parents=True)
     report = _read_json(scoring_report)
+    score_seal_path = scoring_report.with_name(f"{scoring_report.stem}-seal.json")
+    score_seal = _read_json(score_seal_path)
+    execution = verify_execution_seal(run_set, execution_seal)
+    integrity = report.get("integrity", {})
     if (
         report.get("schema") != "orderseal-scored-comparison-v1"
-        or report.get("integrity", {}).get("denominator_count") != 48
-        or report.get("integrity", {}).get("execution_seal_sha256")
-        != sha256_file(execution_seal)
+        or integrity.get("denominator_count") != 48
+        or integrity.get("execution_seal_sha256") != sha256_file(execution_seal)
+        or integrity.get("execution_tree_digest")
+        != execution.get("execution_tree_digest")
     ):
         raise ValueError("scoring report is not bound to the supplied execution seal")
+    if (
+        score_seal.get("schema") != "orderseal-scoring-seal-v1"
+        or score_seal.get("proof_layer") != report.get("proof_layer")
+        or score_seal.get("report_path") != scoring_report.name
+        or score_seal.get("report_sha256") != sha256_file(scoring_report)
+        or score_seal.get("denominator_count") != 48
+        or score_seal.get("execution_tree_digest")
+        != integrity.get("execution_tree_digest")
+        or score_seal.get("execution_seal_sha256")
+        != integrity.get("execution_seal_sha256")
+        or score_seal.get("scorer_contract_sha256")
+        != integrity.get("scorer_contract_sha256")
+    ):
+        raise ValueError("scoring seal is not bound to the supplied report")
+
+    preregistered = _read_json(preregistration)
+    source_revision = preregistered.get("source_revision")
+    if not isinstance(source_revision, str):
+        raise ValueError("preregistration has no source revision")
+    strictly_authorized = (
+        preregistered.get("authorization_gate", {}).get(
+            "scored_execution_authorized"
+        )
+        is True
+    )
+    output.mkdir(parents=True)
 
     copied = {
         "preregistration.json": preregistration,
         "execution-manifest.json": run_set / "manifest.json",
         "execution-seal.json": execution_seal,
         "scoring-report.json": scoring_report,
-        "scoring-seal.json": scoring_report.with_name(
-            f"{scoring_report.stem}-seal.json"
-        ),
+        "scoring-seal.json": score_seal_path,
     }
     for name, source in copied.items():
         shutil.copyfile(source, output / name)
@@ -156,15 +185,22 @@ def export_evidence(
         f"| {case_id} | {cases['directbuy'][case_id]['numerator']}/2 | {cases['orderseal'][case_id]['numerator']}/2 | {cases['orderseal'][case_id]['rate'] - cases['directbuy'][case_id]['rate']:+.0%} |"
         for case_id in sorted(cases["directbuy"])
     )
+    evidence_classification = (
+        "preregistered provider comparison"
+        if strictly_authorized
+        else "post-execution descriptive provider comparison"
+    )
     index = f"""# OrderSeal evidence index
 
-Candidate source baseline: `2ef34aca3cd7c6523a7761fc4d2a0f4db42f7920`
+Frozen implementation revision recorded by the preregistration: `{source_revision}`
 
 Provider execution proof: `provider_model_execution_unscored`
 
 Comparison proof: `provider_model_execution_scored_comparison`
 
-All 48 frozen assignments were scored once from sealed raw SQLite databases. There were no retries, exclusions, voids, or provider failures. Results are descriptive for this synthetic case set only; they do not establish significance, generalization, real-payment safety, staging, or production readiness.
+Evidence classification: **{evidence_classification}**. The included preregistration records `scored_execution_authorized={str(strictly_authorized).lower()}`; when false, this bundle does not claim strict preregistration compliance.
+
+All 48 frozen assignments remain in the denominator and were scored together from sealed raw SQLite databases. There were no provider reruns, exclusions, voids, or provider failures. Results are descriptive for this synthetic case set only; they do not establish significance, generalization, real-payment safety, staging, or production readiness.
 
 ## Headline comparison
 

@@ -14,7 +14,7 @@ Start again with “Demonstrate post-commit acknowledgement loss” checked. Con
 
 ## 2:15–3:20 — Fair frozen comparison
 
-Open [`evidence/INDEX.md`](evidence/INDEX.md). Show the exact 48-row denominator, same Luna/OpenAI route, 24 paired AB/BA units, and separate guardrails. Read only the headline: DirectBuy 12/24, OrderSeal 19/24, paired difference +29.17 points; zero duplicate, constraint-violation, unauthorized, and false-success rows in both. Say: “Descriptive synthetic result only—no significance or generalization claim. Cost and latency are missing.”
+Open [`evidence/INDEX.md`](evidence/INDEX.md). Show the exact 48-row denominator, same Luna/OpenAI route, 24 paired AB/BA units, and separate guardrails. Read only the headline: DirectBuy 12/24, OrderSeal 19/24, paired difference +29.17 points; zero duplicate, constraint-violation, unauthorized, and false-success rows in both. Say: “This is a historical, post-execution descriptive result—not a strict preregistration claim. There is no significance or generalization claim, and cost and latency are missing.”
 
 Open one normal, one ACK-loss, and the C12 hard representative for both conditions. Point out that only tool names/outcomes, sanitized receipt fields, usage, and raw-SQLite oracle facts are exported.
 
@@ -24,7 +24,7 @@ Open [`../IMPROVEMENT_CHANGELOG.md`](../IMPROVEMENT_CHANGELOG.md) at the final e
 
 ## 4:05–4:40 — Reproduction and limits
 
-Show the README verification commands and clean reproduction receipt. End with: “108 tests, a deterministic real-browser smoke, append-sealed offline scoring, and sanitized evidence pass locally. Strict preregistered-scorer identity, deployment, real payments, external hosting, and submission remain unproven.”
+Show the README verification commands and clean reproduction receipt. End with: “110 tests, a deterministic real-browser smoke, sealed offline rescoring, and sanitized evidence pass locally. Strict evaluation authorization and provenance, deployment, real payments, external hosting, and submission remain unproven.”
 
 ## Recording checklist
 
